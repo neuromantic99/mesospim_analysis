@@ -1,0 +1,35 @@
+[project]
+name = "mesospim-analysis"
+version = "0.1.0"
+description = "Autofluorescence-corrected cell detection for mesoSPIM light-sheet c-fos projections"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dask[array]>=2025.1",
+    "h5py>=3.12",
+    "numpy>=2.2",
+    "scipy>=1.15",
+    "tifffile>=2025.1",
+]
+
+[project.scripts]
+mesospim-afcorr = "mesospim_analysis.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15",
+    "pytest>=8.3",
+    "scipy-stubs>=1.15",
+]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests", "main.py"]
+
+[[tool.mypy.overrides]]
+module = ["h5py", "h5py.*"]
+ignore_missing_imports = true
