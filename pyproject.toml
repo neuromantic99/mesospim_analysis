@@ -12,9 +12,6 @@ dependencies = [
     "tifffile>=2025.1",
 ]
 
-[project.scripts]
-mesospim-afcorr = "mesospim_analysis.cli:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

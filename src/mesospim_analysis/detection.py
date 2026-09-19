@@ -52,13 +52,24 @@ def contrast_ratio(
     return ratio
 
 
+AF_RATIO_CUTOFF = 2.0
+"""Signal/AF peak ratio separating autofluorescence from label. Autofluorescent granules sit
+near 0.7 (IQR ~0.5-0.9); AF647 bleeding into the 561 nm channel at ~7% puts labelled cells
+near 14. Results were identical for cutoffs from 1.5 to 3 on real data. Assumes unchanged
+laser powers and exposures: if these change, the autofluorescence ratio moves with them."""
+
+
 @dataclass(frozen=True)
 class Colocalisation:
     centroids: npt.NDArray[np.float64]
     """(n, 2) row/column centroids of objects detected in the signal channel."""
     signal_contrast: npt.NDArray[np.float64]
-    af_contrast: npt.NDArray[np.float64]
-    """Peak contrast in the AF channel within each signal-channel object."""
+    """Peak contrast (image / local background) in the signal channel."""
+    signal_peak: npt.NDArray[np.float64]
+    af_peak: npt.NDArray[np.float64]
+    """Peak background-subtracted intensity in each channel within each signal-channel object."""
+    ratio: npt.NDArray[np.float64]
+    """signal_peak / af_peak."""
     is_autofluorescent: npt.NDArray[np.bool_]
 
 
@@ -67,28 +78,37 @@ def classify_by_autofluorescence(
     af: FloatImage,
     tissue: BoolImage,
     detection_contrast: float = 2.0,
-    af_contrast_cutoff: float = 1.5,
+    af_ratio_cutoff: float = AF_RATIO_CUTOFF,
     pixel_size_um: float = REFERENCE_PIXEL_SIZE_UM,
 ) -> Colocalisation:
-    """Detect objects in the signal channel and flag those that also appear in the AF channel.
+    """Detect objects in the signal channel and flag those whose signal/AF ratio is autofluorescent.
 
-    An object is autofluorescent if its peak contrast in the AF channel is at least
-    `af_contrast_cutoff`. A specific label should be dark in the off-target channel.
+    Classifying on the ratio rather than on whether an object is visible in the AF channel
+    matters because the label bleeds into the AF channel: bright labelled cells are visible
+    there too, but with a ratio ~20x higher than autofluorescence.
     """
-    signal_ratio = contrast_ratio(signal, pixel_size_um)
-    af_ratio = contrast_ratio(af, pixel_size_um)
+    signal_background = local_background(signal, pixel_size_um)
+    af_background = local_background(af, pixel_size_um)
+    signal_ratio = signal / np.maximum(signal_background, 1.0)
     detected = (signal_ratio > detection_contrast) & tissue
     labels, keep = label_objects(detected, *object_size_range(pixel_size_um))
     if len(keep) == 0:
         empty = np.array([], dtype=np.float64)
-        return Colocalisation(np.empty((0, 2)), empty, empty, np.array([], dtype=np.bool_))
+        return Colocalisation(
+            np.empty((0, 2)), empty, empty, empty, empty, np.array([], dtype=np.bool_)
+        )
 
-    signal_contrast = np.asarray(ndi.maximum(signal_ratio, labels, keep), dtype=np.float64)
-    af_contrast = np.asarray(ndi.maximum(af_ratio, labels, keep), dtype=np.float64)
-    centroids = np.asarray(ndi.center_of_mass(detected, labels, keep), dtype=np.float64)
+    signal_peak = np.asarray(
+        ndi.maximum(signal - signal_background, labels, keep), dtype=np.float64
+    )
+    af_peak = np.asarray(ndi.maximum(af - af_background, labels, keep), dtype=np.float64)
+    # an object with no AF-channel signal at all gets a large ratio, i.e. is specific
+    ratio = signal_peak / np.maximum(af_peak, 1.0)
     return Colocalisation(
-        centroids=centroids,
-        signal_contrast=signal_contrast,
-        af_contrast=af_contrast,
-        is_autofluorescent=af_contrast >= af_contrast_cutoff,
+        centroids=np.asarray(ndi.center_of_mass(detected, labels, keep), dtype=np.float64),
+        signal_contrast=np.asarray(ndi.maximum(signal_ratio, labels, keep), dtype=np.float64),
+        signal_peak=signal_peak,
+        af_peak=af_peak,
+        ratio=ratio,
+        is_autofluorescent=ratio < af_ratio_cutoff,
     )

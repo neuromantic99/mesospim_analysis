@@ -17,27 +17,27 @@ from the files, so processing parameters (defined in micrometres) follow the pyr
 
 ## Usage
 
+Edit the settings block at the top of `main.py` (acquisitions, slab thickness, channels,
+depth range), then:
+
 ```bash
-# every consecutive 50 um slab of a brain -> BigTIFF stack + per-slab csv
-uv run mesospim-afcorr brain /data/2026-05-18/N030/001
-
-# a single slab
-uv run mesospim-afcorr slab /data/2026-05-18/N030/001 --z-start-um 2500
-
-# a pair of existing projection TIFFs
-uv run mesospim-afcorr tiff proj_638.tif "proj_561 nm.tif"
-
-# acquisitions under a root
-uv run mesospim-afcorr list /data --mouse N030
+uv run main.py
 ```
 
-Defaults: signal `638 nm`, autofluorescence `561 nm`, 50 um slabs, pyramid level 0, output to
-`afcorr/` next to the h5. See `--help` on each command.
+By default this corrects every consecutive 50 um slab of each listed brain. The functions it
+calls live in `mesospim_analysis/run.py` and can also be used from a notebook:
+
+- `run_brain(path, ...)`: whole brain -> BigTIFF stack + per-slab csv; returns the summaries.
+- `run_slab(path, z_start_um, ...)`: one slab -> `_bgsub`/`_afcorr` TIFF pair.
+- `run_tiff(signal_path, af_path, ...)`: an existing pair of projection TIFFs.
+- `acquisitions.find_acquisitions(root, mouse_id=None)`: every stitched.h5 under a root.
+
+Outputs go to `afcorr/` next to each h5 unless `OUT_DIR` / `out_dir` is set.
 
 - `*_afcorr.tif`: background subtracted with autofluorescence removed. **Count on this.**
 - `*_bgsub.tif`: background subtracted only; **still contains autofluorescent puncta**. Kept
-  as the "before" image (`brain --save-bgsub`).
-- `*_summary.csv` (brain): per slab, the fitted alpha, puncta split into autofluorescent and
+  as the "before" image (`SAVE_BGSUB = True`).
+- `*_summary.csv` (whole-brain runs): per slab, the fitted alpha, puncta split into autofluorescent and
   specific, and object counts before/after correction. Slabs that cannot be corrected (e.g.
   no tissue above/below the brain) get a status message and a blank frame, so frame index ==
   slab index.
@@ -61,6 +61,16 @@ In napari: `load_bigstitched_data` in `utils.py` returns a lazy dask array of on
 Alpha is fitted **per slab**. It absorbs relative laser power and each brain's AF spectrum
 (0.91 vs 0.55 between the first two brains), and 561 and 638 nm light attenuate differently
 with depth. Check its stability down the brain in the summary csv.
+
+Puncta (objects >2x local background in the signal channel) are classified by their
+background-subtracted signal/AF peak ratio: autofluorescence sits near 0.7, while AF647 bleeds
+into the 561 nm channel at ~7%, putting labelled cells near 14. The cutoff is 2. Classifying on
+whether an object is visible in the AF channel at all discards the brightest labelled cells,
+because bleed-through makes them visible there.
+
+In the summary csv, `tissue_px` is ~60% of the frame in every slab and does not indicate
+tissue; `n_fit_pixels` (autofluorescent pixels found) does. Slabs with a few hundred fit pixels
+or fewer are effectively outside the brain and their alpha is unreliable.
 
 BigDataViewer stores uint16 as int16; this is undone on read so bright pixels are not lost
 from max projections.
