@@ -1,4 +1,5 @@
 import csv
+import math
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,8 @@ import tifffile
 
 from conftest import WriteAcquisition
 from mesospim_analysis.acquisitions import find_acquisitions
+from mesospim_analysis.pipeline import OBJECT_FIELDS, read_summary_csv
+from mesospim_analysis.plotting import plot_depth_profiles
 from mesospim_analysis.run import run_brain, run_slab
 
 SIDE = 260
@@ -107,3 +110,56 @@ def test_find_written_acquisition(write_acquisition: WriteAcquisition, tmp_path:
     h5 = write_acquisition(volumes, mouse="N030")
     [acquisition] = find_acquisitions(tmp_path)
     assert (acquisition.name, acquisition.h5_path) == ("2026-05-18_N030_001", h5)
+
+
+def test_summary_csv_round_trip(write_acquisition: WriteAcquisition, tmp_path: Path) -> None:
+    volumes, _, _ = _synthetic_brain()
+    h5 = write_acquisition(volumes)
+    out = tmp_path / "out"
+    summaries = run_brain(h5.parent, out_dir=out)
+    read_back = read_summary_csv(out / "2026-05-18_N027_001_50um_summary.csv")
+
+    # the skipped slab holds NaNs, which never compare equal, so check it separately
+    assert [s for s in read_back if s.status == "ok"] == [s for s in summaries if s.status == "ok"]
+    [skipped], [original] = ([s for s in r if s.status != "ok"] for r in (read_back, summaries))
+    assert skipped.status == original.status
+    assert math.isnan(skipped.alpha) and math.isnan(skipped.signal_sigma)
+
+
+def test_plot_depth_profiles(write_acquisition: WriteAcquisition, tmp_path: Path) -> None:
+    volumes, _, _ = _synthetic_brain()
+    summaries = run_brain(write_acquisition(volumes).parent, out_dir=tmp_path / "out")
+    plot = plot_depth_profiles({"synthetic": summaries}, tmp_path / "figures" / "depth.png")
+    assert plot.stat().st_size > 5000
+
+
+def test_object_csv_has_one_row_per_punctum(
+    write_acquisition: WriteAcquisition, tmp_path: Path
+) -> None:
+    volumes, _, _ = _synthetic_brain()
+    h5 = write_acquisition(volumes)
+    out = tmp_path / "out"
+    summaries = run_brain(h5.parent, out_dir=out, save_objects=True)
+
+    with open(out / "2026-05-18_N027_001_50um_objects.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert list(rows[0]) == list(OBJECT_FIELDS)
+    assert len(rows) == sum(s.puncta_total for s in summaries)
+    for slab in (s for s in summaries if s.status == "ok"):
+        in_slab = [r for r in rows if int(r["slab"]) == slab.slab]
+        assert len(in_slab) == slab.puncta_total
+        assert sum(int(r["is_autofluorescent"]) for r in in_slab) == slab.puncta_autofluorescent
+
+    # the synthetic spots are 3x3 in open tissue, away from the disc edge
+    assert all(3 <= float(r["area_px"]) <= 12 for r in rows)
+    assert all(float(r["distance_to_dark_um"]) > 0 for r in rows)
+    assert np.median([float(r["context_length_um"]) for r in rows]) < 100
+
+
+def test_objects_not_written_when_disabled(
+    write_acquisition: WriteAcquisition, tmp_path: Path
+) -> None:
+    volumes, _, _ = _synthetic_brain()
+    out = tmp_path / "out"
+    run_brain(write_acquisition(volumes).parent, out_dir=out, save_objects=False)
+    assert not list(out.glob("*_objects.csv"))

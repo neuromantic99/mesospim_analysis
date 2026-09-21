@@ -18,6 +18,7 @@ from mesospim_analysis.detection import classify_by_autofluorescence, count_obje
 from mesospim_analysis.io import load_channel_pair, save_uint16
 from mesospim_analysis.pipeline import (
     COUNT_THRESHOLDS,
+    ObjectCsvWriter,
     OpenVolumes,
     SlabStackWriter,
     SlabSummary,
@@ -81,11 +82,13 @@ def run_brain(
     out_dir: Path | None = None,
     z_range_um: tuple[float, float] | None = None,
     save_bgsub: bool = False,
+    save_objects: bool = True,
 ) -> list[SlabSummary]:
     """Correct every consecutive slab of a stitched.h5 into a BigTIFF stack plus a summary csv.
 
     `path` is stitched.h5 or its directory. Outputs go to `out_dir`, default afcorr/ next to
-    the h5. Returns the per-slab summaries written to the csv.
+    the h5. Returns the per-slab summaries written to the csv. `save_objects` also writes one
+    row per detected object, which roughly doubles the runtime.
     """
     h5_path = resolve_h5(path)
     acquisition = parse_acquisition(h5_path)
@@ -108,21 +111,30 @@ def run_brain(
         if save_bgsub:
             stacks["bgsub"] = SlabStackWriter(out_dir / f"{stem}_bgsub.tif", f"{METHOD}; {note}")
         plane_shape = volumes.signal.shape[1:]
+        objects = ObjectCsvWriter(out_dir / f"{stem}_objects.csv") if save_objects else None
         try:
-            for summary, result in process_slabs(
+            for outcome in process_slabs(
                 volumes.signal, volumes.af, planes, volumes.scale,
-                z_start, z_end, volumes.read_block,
+                z_start, z_end, volumes.read_block, with_objects=save_objects,
             ):
-                print_summary(summary)
-                summaries.append(summary)
-                stacks["afcorr"].write(None if result is None else result.corrected, plane_shape)
+                print_summary(outcome.summary)
+                summaries.append(outcome.summary)
+                correction = outcome.correction
+                stacks["afcorr"].write(
+                    None if correction is None else correction.corrected, plane_shape
+                )
                 if "bgsub" in stacks:
                     stacks["bgsub"].write(
-                        None if result is None else result.background_subtracted, plane_shape
+                        None if correction is None else correction.background_subtracted,
+                        plane_shape,
                     )
+                if objects is not None:
+                    objects.write(outcome.objects)
         finally:
             for stack in stacks.values():
                 stack.close()
+            if objects is not None:
+                objects.close()
 
     write_summary_csv(out_dir / f"{stem}_summary.csv", summaries)
     n_ok = sum(s.status == "ok" for s in summaries)
@@ -150,10 +162,11 @@ def run_slab(
     with h5py.File(h5_path, "r") as f:
         volumes, planes = _open(f, h5_path, pyramid_level, signal, af, thickness_um)
         z_start = round(z_start_um / volumes.scale.z_step_um)
-        [(summary, result)] = process_slabs(
+        [outcome] = process_slabs(
             volumes.signal, volumes.af, planes, volumes.scale,
             z_start, z_start + planes, volumes.read_block,
         )
+    summary, result = outcome.summary, outcome.correction
     print_summary(summary)
     if result is None:
         raise ValueError(f"slab could not be corrected: {summary.status}")

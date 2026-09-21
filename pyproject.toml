@@ -7,7 +7,9 @@ requires-python = ">=3.13"
 dependencies = [
     "dask[array]>=2025.1",
     "h5py>=3.12",
+    "matplotlib>=3.11.2",
     "numpy>=2.2",
+    "scikit-image>=0.26.0",
     "scipy>=1.15",
     "tifffile>=2025.1",
 ]

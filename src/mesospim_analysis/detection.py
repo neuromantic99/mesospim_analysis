@@ -4,10 +4,19 @@ import numpy as np
 import numpy.typing as npt
 from scipy import ndimage as ndi
 
-from mesospim_analysis.correction import REFERENCE_PIXEL_SIZE_UM, local_background
+from mesospim_analysis.correction import REFERENCE_PIXEL_SIZE_UM, local_background, to_pixels
 from mesospim_analysis.types import BoolImage, FloatImage
 
 Labels = npt.NDArray[np.int32]
+
+DARK_SMOOTHING_UM = 15 * REFERENCE_PIXEL_SIZE_UM
+DARK_PERCENTILE = 5.0
+"""Dark structures (vessels, ventricles, cracks) are the dimmest few percent of smoothed
+tissue. Nonspecific antibody accumulates on their surfaces."""
+
+CONTEXT_CONTRAST = 1.4
+"""Objects are also described by the structure containing them at this permissive contrast:
+a nucleus sits in a compact blob, antibody on a vessel sits in a long thin one."""
 
 NUCLEUS_AREA_RANGE_UM2 = (3 * REFERENCE_PIXEL_SIZE_UM**2, 400 * REFERENCE_PIXEL_SIZE_UM**2)
 """Keeps nucleus-sized objects and rejects single-pixel noise and large debris."""
@@ -60,11 +69,68 @@ laser powers and exposures: if these change, the autofluorescence ratio moves wi
 
 
 @dataclass(frozen=True)
+class SpatialContext:
+    """Where each object sits. Nonspecific antibody hugs vessel and tissue boundaries."""
+
+    distance_to_dark_um: npt.NDArray[np.float64]
+    context_length_um: npt.NDArray[np.float64]
+    """Major axis of the structure containing the object at CONTEXT_CONTRAST."""
+    context_area_px: npt.NDArray[np.float64]
+
+
+def _major_axis_length(mask: BoolImage) -> float:
+    """Major axis in pixels, matching skimage's axis_major_length, for a single component."""
+    rows, columns = np.nonzero(mask)
+    if len(rows) < 2:
+        return 1.0
+    covariance = np.cov(np.stack([rows.astype(np.float64), columns.astype(np.float64)]))
+    largest = float(np.linalg.eigvalsh(covariance)[-1])
+    return float(4.0 * np.sqrt(max(largest, 0.0)))
+
+
+def spatial_context(
+    signal: FloatImage,
+    tissue: BoolImage,
+    centroids: npt.NDArray[np.float64],
+    pixel_size_um: float = REFERENCE_PIXEL_SIZE_UM,
+) -> SpatialContext:
+    """Distance from each object to the nearest dark structure, and the shape of its surroundings."""
+    if len(centroids) == 0:
+        empty = np.array([], dtype=np.float64)
+        return SpatialContext(empty, empty, empty)
+    rows = centroids[:, 0].astype(int)
+    columns = centroids[:, 1].astype(int)
+
+    smoothed = ndi.uniform_filter(signal, to_pixels(DARK_SMOOTHING_UM, pixel_size_um))
+    dark = smoothed < np.percentile(signal[tissue], DARK_PERCENTILE)
+    distance = ndi.distance_transform_edt(~(dark | ~tissue)) * pixel_size_um
+
+    ratio = signal / np.maximum(local_background(signal, pixel_size_um), 1.0)
+    context, _ = ndi.label((ratio > CONTEXT_CONTRAST) & tissue)
+    boxes = ndi.find_objects(context)
+    at_object = context[rows, columns]
+    lengths: dict[int, float] = {}
+    areas: dict[int, float] = {}
+    for component in np.unique(at_object):  # only the components that contain an object
+        if component == 0:
+            continue
+        patch = context[boxes[component - 1]] == component
+        lengths[int(component)] = _major_axis_length(patch) * pixel_size_um
+        areas[int(component)] = float(patch.sum())
+    return SpatialContext(
+        distance_to_dark_um=np.asarray(distance[rows, columns], dtype=np.float64),
+        context_length_um=np.array([lengths.get(int(c), 0.0) for c in at_object]),
+        context_area_px=np.array([areas.get(int(c), 0.0) for c in at_object]),
+    )
+
+
+@dataclass(frozen=True)
 class Colocalisation:
     centroids: npt.NDArray[np.float64]
     """(n, 2) row/column centroids of objects detected in the signal channel."""
     signal_contrast: npt.NDArray[np.float64]
     """Peak contrast (image / local background) in the signal channel."""
+    area_px: npt.NDArray[np.float64]
     signal_peak: npt.NDArray[np.float64]
     af_peak: npt.NDArray[np.float64]
     """Peak background-subtracted intensity in each channel within each signal-channel object."""
@@ -95,7 +161,7 @@ def classify_by_autofluorescence(
     if len(keep) == 0:
         empty = np.array([], dtype=np.float64)
         return Colocalisation(
-            np.empty((0, 2)), empty, empty, empty, empty, np.array([], dtype=np.bool_)
+            np.empty((0, 2)), empty, empty, empty, empty, empty, np.array([], dtype=np.bool_)
         )
 
     signal_peak = np.asarray(
@@ -107,6 +173,7 @@ def classify_by_autofluorescence(
     return Colocalisation(
         centroids=np.asarray(ndi.center_of_mass(detected, labels, keep), dtype=np.float64),
         signal_contrast=np.asarray(ndi.maximum(signal_ratio, labels, keep), dtype=np.float64),
+        area_px=np.asarray(ndi.sum(detected, labels, keep), dtype=np.float64),
         signal_peak=signal_peak,
         af_peak=af_peak,
         ratio=ratio,

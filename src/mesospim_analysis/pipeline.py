@@ -15,7 +15,12 @@ from mesospim_analysis.correction import (
     AutofluorescenceCorrection,
     correct_autofluorescence,
 )
-from mesospim_analysis.detection import classify_by_autofluorescence, count_objects
+from mesospim_analysis.detection import (
+    Colocalisation,
+    classify_by_autofluorescence,
+    count_objects,
+    spatial_context,
+)
 from mesospim_analysis.projection import Slab, Volume, iter_slab_projections
 from mesospim_analysis.types import FloatImage
 from mesospim_analysis.utils import (
@@ -72,17 +77,56 @@ class SlabSummary:
         return row
 
 
+OBJECT_FIELDS = (
+    "slab", "z_start_um", "z_end_um", "y_px", "x_px", "y_um", "x_um", "area_px", "area_um2",
+    "signal_peak", "af_peak", "ratio", "signal_contrast", "is_autofluorescent",
+    "distance_to_dark_um", "context_length_um", "context_area_px",
+)
+
+
+def object_rows(
+    slab: Slab, coloc: Colocalisation, result: AutofluorescenceCorrection, scale: Scale
+) -> list[dict[str, float]]:
+    """One row per detected object, for fitting filters on real and nonspecific populations."""
+    context = spatial_context(
+        slab.projection, result.tissue, coloc.centroids, scale.pixel_size_um
+    )
+    pixel = scale.pixel_size_um
+    return [
+        {
+            "slab": slab.index,
+            "z_start_um": slab.z_start * scale.z_step_um,
+            "z_end_um": slab.z_end * scale.z_step_um,
+            "y_px": round(float(coloc.centroids[i, 0]), 1),
+            "x_px": round(float(coloc.centroids[i, 1]), 1),
+            "y_um": round(float(coloc.centroids[i, 0]) * pixel, 1),
+            "x_um": round(float(coloc.centroids[i, 1]) * pixel, 1),
+            "area_px": float(coloc.area_px[i]),
+            "area_um2": round(float(coloc.area_px[i]) * pixel**2, 1),
+            "signal_peak": round(float(coloc.signal_peak[i]), 1),
+            "af_peak": round(float(coloc.af_peak[i]), 1),
+            "ratio": round(float(coloc.ratio[i]), 3),
+            "signal_contrast": round(float(coloc.signal_contrast[i]), 3),
+            "is_autofluorescent": int(coloc.is_autofluorescent[i]),
+            "distance_to_dark_um": round(float(context.distance_to_dark_um[i]), 1),
+            "context_length_um": round(float(context.context_length_um[i]), 1),
+            "context_area_px": float(context.context_area_px[i]),
+        }
+        for i in range(len(coloc.ratio))
+    ]
+
+
 def summarize(
     slab: Slab,
     af_projection: FloatImage,
     result: AutofluorescenceCorrection,
     scale: Scale,
-) -> SlabSummary:
+) -> tuple[SlabSummary, Colocalisation]:
     coloc = classify_by_autofluorescence(
         slab.projection, af_projection, result.tissue, pixel_size_um=scale.pixel_size_um
     )
     n_af = int(coloc.is_autofluorescent.sum())
-    return SlabSummary(
+    summary = SlabSummary(
         slab=slab.index,
         z_start=slab.z_start,
         z_end=slab.z_end,
@@ -106,6 +150,16 @@ def summarize(
             for t in COUNT_THRESHOLDS
         },
     )
+    return summary, coloc
+
+
+@dataclass(frozen=True)
+class SlabOutcome:
+    summary: SlabSummary
+    correction: AutofluorescenceCorrection | None
+    """None when the slab could not be corrected; see summary.status."""
+    objects: list[dict[str, float]]
+    """Empty unless process_slabs was asked for objects."""
 
 
 def process_slabs(
@@ -116,7 +170,8 @@ def process_slabs(
     z_start: int = 0,
     z_end: int | None = None,
     read_block: int = 32,
-) -> Iterator[tuple[SlabSummary, AutofluorescenceCorrection | None]]:
+    with_objects: bool = False,
+) -> Iterator[SlabOutcome]:
     """Correct each slab independently, fitting alpha per slab.
 
     Alpha is refitted per slab because 561 and 638 nm light attenuate differently with depth,
@@ -132,7 +187,7 @@ def process_slabs(
                 signal_slab.projection, af_slab.projection, scale.pixel_size_um
             )
         except ValueError as e:
-            yield (
+            yield SlabOutcome(
                 SlabSummary(
                     slab=signal_slab.index,
                     z_start=signal_slab.z_start,
@@ -142,9 +197,12 @@ def process_slabs(
                     status=str(e),
                 ),
                 None,
+                [],
             )
             continue
-        yield summarize(signal_slab, af_slab.projection, result, scale), result
+        summary, coloc = summarize(signal_slab, af_slab.projection, result, scale)
+        objects = object_rows(signal_slab, coloc, result, scale) if with_objects else []
+        yield SlabOutcome(summary, result, objects)
 
 
 @dataclass(frozen=True)
@@ -205,3 +263,46 @@ def write_summary_csv(path: Path, summaries: list[SlabSummary]) -> None:
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def read_summary_csv(path: Path) -> list[SlabSummary]:
+    """Read back a summary csv written by `write_summary_csv`."""
+    summaries: list[SlabSummary] = []
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            summaries.append(
+                SlabSummary(
+                    slab=int(row["slab"]),
+                    z_start=int(row["z_start"]),
+                    z_end=int(row["z_end"]),
+                    z_start_um=float(row["z_start_um"]),
+                    z_end_um=float(row["z_end_um"]),
+                    status=row["status"],
+                    tissue_px=int(row["tissue_px"]),
+                    alpha=float(row["alpha"]),
+                    n_fit_pixels=int(row["n_fit_pixels"]),
+                    signal_sigma=float(row["signal_sigma"]),
+                    af_sigma=float(row["af_sigma"]),
+                    puncta_total=int(row["puncta_total"]),
+                    puncta_autofluorescent=int(row["puncta_autofluorescent"]),
+                    puncta_specific=int(row["puncta_specific"]),
+                    objects_bgsub={t: int(row[f"objects_bgsub_gt{t:.0f}"]) for t in COUNT_THRESHOLDS},
+                    objects_afcorr={t: int(row[f"objects_afcorr_gt{t:.0f}"]) for t in COUNT_THRESHOLDS},
+                )
+            )
+    return summaries
+
+
+class ObjectCsvWriter:
+    """Streams per-object rows to csv as slabs are processed."""
+
+    def __init__(self, path: Path) -> None:
+        self._file = open(path, "w", newline="")
+        self._writer = csv.DictWriter(self._file, fieldnames=list(OBJECT_FIELDS))
+        self._writer.writeheader()
+
+    def write(self, rows: list[dict[str, float]]) -> None:
+        self._writer.writerows(rows)
+
+    def close(self) -> None:
+        self._file.close()

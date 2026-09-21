@@ -31,12 +31,20 @@ calls live in `mesospim_analysis/run.py` and can also be used from a notebook:
 - `run_slab(path, z_start_um, ...)`: one slab -> `_bgsub`/`_afcorr` TIFF pair.
 - `run_tiff(signal_path, af_path, ...)`: an existing pair of projection TIFFs.
 - `acquisitions.find_acquisitions(root, mouse_id=None)`: every stitched.h5 under a root.
+- `plotting.plot_depth_profiles({label: summaries}, path)`: cells, autofluorescence load and
+  alpha against depth. `main.py` writes it for every brain it processes (`PLOT_PATH`), and
+  `pipeline.read_summary_csv` reads old runs back so figures can be redrawn without reprocessing.
 
 Outputs go to `afcorr/` next to each h5 unless `OUT_DIR` / `out_dir` is set.
 
 - `*_afcorr.tif`: background subtracted with autofluorescence removed. **Count on this.**
 - `*_bgsub.tif`: background subtracted only; **still contains autofluorescent puncta**. Kept
   as the "before" image (`SAVE_BGSUB = True`).
+- `*_objects.csv` (whole-brain runs, `SAVE_OBJECTS`): one row per detected object, with its
+  position, area, peak in each channel, ratio, and where it sits — distance to the nearest dark
+  structure (vessel, ventricle, crack) and the length of the structure containing it. Nonspecific
+  antibody hugs those boundaries and sits in long thin structures; labelled nuclei are compact and
+  at chance distance from them. Adds ~25% to the runtime.
 - `*_summary.csv` (whole-brain runs): per slab, the fitted alpha, puncta split into autofluorescent and
   specific, and object counts before/after correction. Slabs that cannot be corrected (e.g.
   no tissue above/below the brain) get a status message and a blank frame, so frame index ==
