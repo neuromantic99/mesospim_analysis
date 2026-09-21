@@ -17,9 +17,14 @@ DATA_ROOT = Path("/home/james/mnt/MarcBusche/James/Mesospim")
 #   from mesospim_analysis.acquisitions import find_acquisitions
 #   ACQUISITIONS = [a.h5_path for a in find_acquisitions(DATA_ROOT, mouse_id="N027")]
 ACQUISITIONS = [
-    DATA_ROOT / "2026-05-18/N027/001",  # stained
-    DATA_ROOT / "2026-05-18/N030/001",  # secondary-only control
+    DATA_ROOT / "2026-08-27/N041/001",  # control
+    DATA_ROOT / "2026-06-26/N039/001",  # stained
+    DATA_ROOT / "2026-07-30/N032/001",  # stained
 ]
+
+for acquisition in ACQUISITIONS:
+    if not (acquisition / "stitched.h5").exists():
+        raise FileNotFoundError(f"Acquisition not found: {acquisition}")
 
 THICKNESS_UM = 50.0
 PYRAMID_LEVEL = 0  # count cells at level 0 only
