@@ -31,6 +31,11 @@ calls live in `mesospim_analysis/run.py` and can also be used from a notebook:
 - `run_slab(path, z_start_um, ...)`: one slab -> `_bgsub`/`_afcorr` TIFF pair.
 - `run_tiff(signal_path, af_path, ...)`: an existing pair of projection TIFFs.
 - `acquisitions.find_acquisitions(root, mouse_id=None)`: every stitched.h5 under a root.
+- `filters`: separates labelled cells from nonspecific antibody by object geometry.
+  `DEFAULT_FILTER.score(rows)` scores objects 0-1, `brain_score(rows)` flags whole brains
+  (real brains ~0.67-0.70, a secondary-only control ~0.33), `write_scored_objects` filters an
+  existing objects csv, and `fit_nonspecific_filter(real, control)` refits for a new batch.
+  Runs on a saved objects csv, so no brain needs reprocessing.
 - `plotting.plot_depth_profiles({label: summaries}, path)`: cells, autofluorescence load and
   alpha against depth. `main.py` writes it for every brain it processes (`PLOT_PATH`), and
   `pipeline.read_summary_csv` reads old runs back so figures can be redrawn without reprocessing.
@@ -84,6 +89,20 @@ BigDataViewer stores uint16 as int16; this is undone on read so bright pixels ar
 from max projections.
 
 Both channels must come from the same acquisition so they are pixel-registered.
+
+## Nonspecific antibody
+
+The autofluorescence correction cannot remove secondary antibody bound where it should not be:
+that is genuine AF647. A secondary-only control measures it directly — in N041 it was ~18% of a
+real brain's object density. Those objects accumulate on vessel, ventricle and tissue surfaces
+and sit in long thin structures, while labelled nuclei are compact and at chance distance from
+such boundaries. `filters` scores that difference (AUC 0.83 measured, ~0.90 once the real
+brain's own nonspecific fraction is accounted for). Keeping 95% of a real brain's objects
+removes 44% of a control's, taking the nonspecific fraction from ~18% to ~10%.
+
+Object brightness is deliberately excluded: it separates the populations within one brain but
+reflects that brain's exposure, and including it made the model worse on a held-out brain.
+Nonspecific binding depends on secondary lot and blocking, so refit per staining batch.
 
 ## Validation
 

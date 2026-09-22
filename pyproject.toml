@@ -10,6 +10,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.2",
     "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.1",
     "scipy>=1.15",
     "tifffile>=2025.1",
 ]
@@ -30,5 +31,5 @@ strict = true
 files = ["src", "tests", "main.py"]
 
 [[tool.mypy.overrides]]
-module = ["h5py", "h5py.*"]
+module = ["h5py", "h5py.*", "sklearn.*"]
 ignore_missing_imports = true
