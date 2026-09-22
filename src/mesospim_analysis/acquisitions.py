@@ -2,9 +2,15 @@
 
 import datetime
 from dataclasses import dataclass
+from importlib.metadata import metadata
 from pathlib import Path
 
+from mesospim_analysis.utils import read_stitched_metadata
+
 STITCHED_FILENAME = "stitched.h5"
+
+
+DATA_ROOT = Path("/home/james/mnt/MarcBusche/James/Mesospim")
 
 
 @dataclass(frozen=True)
@@ -61,3 +67,18 @@ def find_acquisitions(root: Path, mouse_id: str | None = None) -> list[Acquisiti
     return sorted(
         acquisitions, key=lambda a: (a.date, a.mouse_id, a.imaging_number or "")
     )
+
+
+def build_aquisition_list() -> list[Path]:
+    all_mice = [f"N{n:03d}" for n in range(1, 66)]
+
+    to_analyse: list[Path] = []
+
+    for mouse in all_mice:
+        acquisitions = find_acquisitions(DATA_ROOT, mouse_id=mouse)
+        for acquisition in acquisitions:
+            metadata = read_stitched_metadata(acquisition.h5_path)
+            if "561 nm" in metadata.channel_setups:
+                to_analyse.append(acquisition.h5_path)
+
+    return to_analyse

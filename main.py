@@ -1,30 +1,20 @@
 """Edit the settings below, then run:  uv run main.py"""
 
 from pathlib import Path
+from typing import List
 
-from mesospim_analysis.acquisitions import parse_acquisition, resolve_h5
+from mesospim_analysis.acquisitions import (
+    build_aquisition_list,
+    find_acquisitions,
+    parse_acquisition,
+    resolve_h5,
+)
 from mesospim_analysis.plotting import plot_depth_profiles
 from mesospim_analysis.run import run_brain
 
 # ---------------------------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------------------------
-
-DATA_ROOT = Path("/home/james/mnt/MarcBusche/James/Mesospim")
-
-# Acquisition folders (yyyy-mm-dd/MOUSE_ID/IMAGING-NUM) or stitched.h5 files to process.
-# To process every acquisition of a mouse instead:
-#   from mesospim_analysis.acquisitions import find_acquisitions
-#   ACQUISITIONS = [a.h5_path for a in find_acquisitions(DATA_ROOT, mouse_id="N027")]
-ACQUISITIONS = [
-    DATA_ROOT / "2026-08-27/N041/001",  # control
-    DATA_ROOT / "2026-06-26/N039/001",  # stained
-    DATA_ROOT / "2026-07-30/N032/001",  # stained
-]
-
-for acquisition in ACQUISITIONS:
-    if not (acquisition / "stitched.h5").exists():
-        raise FileNotFoundError(f"Acquisition not found: {acquisition}")
 
 THICKNESS_UM = 50.0
 PYRAMID_LEVEL = 0  # count cells at level 0 only
@@ -43,9 +33,9 @@ PLOT_PATH: Path | None = Path(
 # ---------------------------------------------------------------------------------------------
 
 
-def main() -> None:
+def main(acquisitions: List[Path]) -> None:
     summaries = {}
-    for acquisition in ACQUISITIONS:
+    for acquisition in acquisitions:
         summaries[parse_acquisition(resolve_h5(acquisition)).name] = run_brain(
             acquisition,
             thickness_um=THICKNESS_UM,
@@ -62,4 +52,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    acquisitions = build_aquisition_list()
+    main(acquisitions)
