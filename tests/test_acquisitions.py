@@ -58,7 +58,7 @@ def test_copy_results_never_overwrites_a_result_with_an_empty_file(
     (destination / "partial_objects.csv").write_text("a,b\n1,2\n3,4\n5,6\n")
 
     monkeypatch.setattr(acquisitions, "DATA_ROOT", root)
-    monkeypatch.setattr(acquisitions, "Path", lambda p: destination if "afcorr_results" in str(p) else Path(p))
+    monkeypatch.setattr(acquisitions, "RESULTS_DIR", destination)
     acquisitions.copy_results()
 
     survivor = "a,b\n1,2\n3,4\n5,6\n"

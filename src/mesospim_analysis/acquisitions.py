@@ -8,7 +8,7 @@ import re
 
 import numpy as np
 
-from mesospim_analysis.constants import DATA_ROOT
+from mesospim_analysis.constants import DATA_ROOT, RESULTS_DIR
 from mesospim_analysis.utils import read_stitched_metadata
 
 STITCHED_FILENAME = "stitched.h5"
@@ -102,7 +102,7 @@ def copy_results() -> None:
                 csvs = imaging_number.glob("afcorr/*.csv")
                 all_csvs.extend(list(csvs))
 
-    destination = Path("/Volumes/hard_drive/Mesospim/afcorr_results")
+    destination = RESULTS_DIR
     for csv in all_csvs:
         destination_path = destination / csv.name
         # A run truncates its output at startup and buffers, so a file that is still being
