@@ -76,8 +76,15 @@ Alpha is fitted **per slab**. It absorbs relative laser power and each brain's A
 with depth. Check its stability down the brain in the summary csv.
 
 Puncta (objects >2x local background in the signal channel) are classified by their
-background-subtracted signal/AF peak ratio: autofluorescence sits near 0.7, while AF647 bleeds
-into the 561 nm channel at ~7%, putting labelled cells near 14. The cutoff is 2. Classifying on
+background-subtracted signal/AF peak ratio: autofluorescence sits at `alpha`, while AF647 bleeds
+into the 561 nm channel at ~7%, putting labelled cells near 14x alpha. The cutoff is 3 x alpha,
+fitted per slab. A fixed cutoff fails: alpha varies 4-fold between brains (0.49-2.13 measured)
+with tissue and clearing rather than with laser power, and at alpha 1.6 a fixed cutoff of 2
+counted 44,101 autofluorescent objects as cells in a secondary-only control.
+
+The off-target channel must be 561 nm. 488 nm was tested and fails: on a no-antibody control it
+reported 234 false cells in a single slab where 561 reported none, and no cutoff separates them,
+because the fluorophores bright at 488 are not the ones bright at 638. Classifying on
 whether an object is visible in the AF channel at all discards the brightest labelled cells,
 because bleed-through makes them visible there.
 
@@ -89,6 +96,25 @@ BigDataViewer stores uint16 as int16; this is undone on read so bright pixels ar
 from max projections.
 
 Both channels must come from the same acquisition so they are pixel-registered.
+
+## Judging a brain
+
+`verdict.measure_brain(objects_csv, summary_csv)` then `verdict.judge(measurement, floor)`
+answers one question: does this brain have labelling above the background of its own staining
+round? Thresholds are frozen (see `FROZEN_ON`) and were chosen on the brains listed in that
+module, so no accuracy on them means anything.
+
+The floor is the density of a secondary-only control **stained in the same round** (matched by
+Primary date, not by perfusion or imaging date). It varied 17-fold between rounds in training,
+so without a same-round control the rule hedges: it will not call anything below 250/MP, where
+a working stain (247/MP) and a control (222/MP) overlapped.
+
+It cannot tell you whether primary antibody was applied. A real brain whose stain failed is
+indistinguishable from a secondary-only control by these measurements; several confident calls
+made that way during development were wrong. Take the label from the staining record.
+
+`verdict.select_specific` recomputes the classification from a finished run, so summaries
+written before the alpha-relative cutoff can be corrected without reprocessing image data.
 
 ## Nonspecific antibody
 
