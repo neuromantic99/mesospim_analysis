@@ -4,13 +4,14 @@ import datetime
 from dataclasses import dataclass
 from importlib.metadata import metadata
 from pathlib import Path
+import re
 
+import numpy as np
+
+from mesospim_analysis.constants import DATA_ROOT
 from mesospim_analysis.utils import read_stitched_metadata
 
 STITCHED_FILENAME = "stitched.h5"
-
-
-DATA_ROOT = Path("/home/james/mnt/MarcBusche/James/Mesospim")
 
 
 @dataclass(frozen=True)
@@ -82,3 +83,46 @@ def build_aquisition_list() -> list[Path]:
                 to_analyse.append(acquisition.h5_path)
 
     return to_analyse
+
+
+def copy_results() -> None:
+
+    import shutil
+
+    dates = DATA_ROOT.glob("*/")
+
+    all_csvs = []
+    for date in dates:
+        mice = date.glob("*/")
+        for mouse in mice:
+            imaging_numbers = mouse.glob("*/")
+            for imaging_number in imaging_numbers:
+                if not (imaging_number / "afcorr").exists():
+                    continue
+                csvs = imaging_number.glob("afcorr/*.csv")
+                all_csvs.extend(list(csvs))
+
+    destination = Path("/Volumes/hard_drive/Mesospim/afcorr_results")
+    for csv in all_csvs:
+        destination_path = destination / csv.name
+        # A run truncates its output at startup and buffers, so a file that is still being
+        # written (or whose run died early) is empty. Copying that over a finished result
+        # loses it, which has happened.
+        if csv.stat().st_size == 0:
+            print(f"skipping empty {csv.name} (run in progress or failed)")
+            continue
+        if (
+            destination_path.exists()
+            and destination_path.stat().st_size > csv.stat().st_size
+        ):
+            print(
+                f"skipping {csv.name}: destination is larger "
+                f"({destination_path.stat().st_size} > {csv.stat().st_size} bytes); "
+                "delete it by hand if the new run really is the one you want"
+            )
+            continue
+        shutil.copy2(csv, destination_path)
+
+
+if __name__ == "__main__":
+    copy_results()

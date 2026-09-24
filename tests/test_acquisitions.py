@@ -39,3 +39,30 @@ def test_find_acquisitions_sorts_and_filters(tmp_path: Path) -> None:
         "2026-05-18_N027", "2026-05-18_N030_001", "2026-05-18_N030_002", "2026-05-19_N030_001",
     ]
     assert [a.name for a in find_acquisitions(tmp_path, mouse_id="N027")] == ["2026-05-18_N027"]
+
+
+def test_copy_results_never_overwrites_a_result_with_an_empty_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from mesospim_analysis import acquisitions
+
+    root = tmp_path / "data"
+    afcorr = root / "2026-05-18" / "N027" / "001" / "afcorr"
+    afcorr.mkdir(parents=True)
+    (afcorr / "in_progress_objects.csv").write_text("")          # run started, nothing flushed
+    (afcorr / "partial_objects.csv").write_text("a,b\n1,2\n")    # shorter than what we have
+    (afcorr / "fresh_objects.csv").write_text("a,b\n1,2\n3,4\n")
+    destination = tmp_path / "results"
+    destination.mkdir()
+    (destination / "in_progress_objects.csv").write_text("a,b\n1,2\n3,4\n5,6\n")
+    (destination / "partial_objects.csv").write_text("a,b\n1,2\n3,4\n5,6\n")
+
+    monkeypatch.setattr(acquisitions, "DATA_ROOT", root)
+    monkeypatch.setattr(acquisitions, "Path", lambda p: destination if "afcorr_results" in str(p) else Path(p))
+    acquisitions.copy_results()
+
+    survivor = "a,b\n1,2\n3,4\n5,6\n"
+    assert (destination / "in_progress_objects.csv").read_text() == survivor   # untouched
+    assert (destination / "partial_objects.csv").read_text() == survivor       # untouched
+    assert (destination / "fresh_objects.csv").exists()                            # copied
+    assert "skipping empty" in capsys.readouterr().out
