@@ -1,5 +1,6 @@
 import csv
 import math
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ import tifffile
 
 from conftest import WriteAcquisition
 from mesospim_analysis.acquisitions import find_acquisitions
-from mesospim_analysis.pipeline import OBJECT_FIELDS, read_summary_csv
+from mesospim_analysis.pipeline import OBJECT_FIELDS, process_slabs, read_summary_csv
 from mesospim_analysis.plotting import plot_depth_profiles
 from mesospim_analysis.run import run_brain, run_slab
 
@@ -163,3 +164,38 @@ def test_objects_not_written_when_disabled(
     out = tmp_path / "out"
     run_brain(write_acquisition(volumes).parent, out_dir=out, save_objects=False)
     assert not list(out.glob("*_objects.csv"))
+
+
+def test_run_slab_writes_objects(write_acquisition: WriteAcquisition, tmp_path: Path) -> None:
+    volumes, _, n_specific = _synthetic_brain()
+    out = tmp_path / "out"
+    summary, _ = run_slab(write_acquisition(volumes), z_start_um=50, out_dir=out)
+    [objects_csv] = out.glob("*_objects.csv")
+    rows = list(csv.DictReader(open(objects_csv)))
+    assert len(rows) == summary.puncta_total
+    assert sum(1 for r in rows if r["is_autofluorescent"] == "0") == n_specific
+
+
+def test_interrupted_run_keeps_finished_slabs(
+    write_acquisition: WriteAcquisition, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run killed part way must leave the slabs it finished, not an empty file."""
+    volumes, _, _ = _synthetic_brain()
+    h5 = write_acquisition(volumes)
+    out = tmp_path / "out"
+    real_process_slabs = process_slabs
+
+    def die_after_two(*args: object, **kwargs: object) -> Iterator[object]:
+        for i, outcome in enumerate(real_process_slabs(*args, **kwargs)):  # type: ignore[arg-type]
+            if i == 2:
+                raise RuntimeError("killed")
+            yield outcome
+
+    monkeypatch.setattr("mesospim_analysis.run.process_slabs", die_after_two)
+    with pytest.raises(RuntimeError, match="killed"):
+        run_brain(h5.parent, out_dir=out)
+
+    summaries = read_summary_csv(out / "2026-05-18_N027_001_50um_summary.csv")
+    assert [s.slab for s in summaries] == [0, 1]
+    rows = list(csv.DictReader(open(out / "2026-05-18_N027_001_50um_objects.csv")))
+    assert len(rows) == sum(s.puncta_total for s in summaries) > 0

@@ -22,9 +22,9 @@ from mesospim_analysis.pipeline import (
     OpenVolumes,
     SlabStackWriter,
     SlabSummary,
+    SummaryCsvWriter,
     open_volumes,
     process_slabs,
-    write_summary_csv,
 )
 from mesospim_analysis.projection import planes_per_slab
 
@@ -112,6 +112,7 @@ def run_brain(
             stacks["bgsub"] = SlabStackWriter(out_dir / f"{stem}_bgsub.tif", f"{METHOD}; {note}")
         plane_shape = volumes.signal.shape[1:]
         objects = ObjectCsvWriter(out_dir / f"{stem}_objects.csv") if save_objects else None
+        summary_csv = SummaryCsvWriter(out_dir / f"{stem}_summary.csv")
         try:
             for outcome in process_slabs(
                 volumes.signal, volumes.af, planes, volumes.scale,
@@ -119,6 +120,7 @@ def run_brain(
             ):
                 print_summary(outcome.summary)
                 summaries.append(outcome.summary)
+                summary_csv.write(outcome.summary)
                 correction = outcome.correction
                 stacks["afcorr"].write(
                     None if correction is None else correction.corrected, plane_shape
@@ -135,8 +137,8 @@ def run_brain(
                 stack.close()
             if objects is not None:
                 objects.close()
+            summary_csv.close()
 
-    write_summary_csv(out_dir / f"{stem}_summary.csv", summaries)
     n_ok = sum(s.status == "ok" for s in summaries)
     specific = sum(s.puncta_specific for s in summaries)
     print(f"{acquisition.name}: {n_ok}/{len(summaries)} slabs corrected, "
@@ -152,8 +154,9 @@ def run_slab(
     signal: str = "638 nm",
     af: str = "561 nm",
     out_dir: Path | None = None,
+    save_objects: bool = True,
 ) -> tuple[SlabSummary, AutofluorescenceCorrection]:
-    """Correct the slab starting at `z_start_um` and write its _bgsub/_afcorr TIFFs."""
+    """Correct the slab starting at `z_start_um`, writing its _bgsub/_afcorr TIFFs and objects."""
     h5_path = resolve_h5(path)
     acquisition = parse_acquisition(h5_path)
     out_dir = out_dir or h5_path.parent / "afcorr"
@@ -164,7 +167,7 @@ def run_slab(
         z_start = round(z_start_um / volumes.scale.z_step_um)
         [outcome] = process_slabs(
             volumes.signal, volumes.af, planes, volumes.scale,
-            z_start, z_start + planes, volumes.read_block,
+            z_start, z_start + planes, volumes.read_block, with_objects=save_objects,
         )
     summary, result = outcome.summary, outcome.correction
     print_summary(summary)
@@ -173,7 +176,15 @@ def run_slab(
     name = f"{_output_stem(acquisition, planes, volumes)}_z{summary.z_start_um:g}"
     save_uint16(out_dir / f"{name}_bgsub.tif", result.background_subtracted, METHOD)
     save_uint16(out_dir / f"{name}_afcorr.tif", result.corrected, afcorr_description(result.alpha))
-    print(f"wrote {name}_bgsub.tif and {name}_afcorr.tif to {out_dir}")
+    written = f"{name}_bgsub.tif and {name}_afcorr.tif"
+    if save_objects:
+        objects = ObjectCsvWriter(out_dir / f"{name}_objects.csv")
+        try:
+            objects.write(outcome.objects)
+        finally:
+            objects.close()
+        written += f" and {name}_objects.csv"
+    print(f"wrote {written} to {out_dir}")
     return summary, result
 
 

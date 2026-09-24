@@ -16,6 +16,9 @@ from mesospim_analysis.correction import (
     correct_autofluorescence,
 )
 from mesospim_analysis.detection import (
+    AF_RATIO_MULTIPLE,
+    DEFAULT_ALPHA,
+    MIN_ALPHA_FIT_PIXELS,
     Colocalisation,
     classify_by_autofluorescence,
     count_objects,
@@ -116,14 +119,39 @@ def object_rows(
     ]
 
 
+class AlphaTracker:
+    """Running median of reliably fitted alphas, for slabs that cannot fit their own.
+
+    Slabs at the top and bottom of a brain hold too little autofluorescence to fit alpha, and
+    their fitted value is noise. They are also nearly empty, so the fallback rarely matters.
+    """
+
+    def __init__(self) -> None:
+        self._reliable: list[float] = []
+
+    def update(self, result: AutofluorescenceCorrection) -> None:
+        if result.n_fit_pixels >= MIN_ALPHA_FIT_PIXELS and math.isfinite(result.alpha):
+            self._reliable.append(result.alpha)
+
+    def alpha_for(self, result: AutofluorescenceCorrection) -> float:
+        if result.n_fit_pixels >= MIN_ALPHA_FIT_PIXELS and math.isfinite(result.alpha):
+            return result.alpha
+        return float(np.median(self._reliable)) if self._reliable else DEFAULT_ALPHA
+
+
 def summarize(
     slab: Slab,
     af_projection: FloatImage,
     result: AutofluorescenceCorrection,
     scale: Scale,
+    alpha: float,
 ) -> tuple[SlabSummary, Colocalisation]:
     coloc = classify_by_autofluorescence(
-        slab.projection, af_projection, result.tissue, pixel_size_um=scale.pixel_size_um
+        slab.projection,
+        af_projection,
+        result.tissue,
+        af_ratio_cutoff=AF_RATIO_MULTIPLE * alpha,
+        pixel_size_um=scale.pixel_size_um,
     )
     n_af = int(coloc.is_autofluorescent.sum())
     summary = SlabSummary(
@@ -181,6 +209,7 @@ def process_slabs(
         raise ValueError(f"channel volumes differ in shape: {signal.shape} vs {af.shape}")
     signal_slabs = iter_slab_projections(signal, planes, z_start, z_end, read_block)
     af_slabs = iter_slab_projections(af, planes, z_start, z_end, read_block)
+    tracker = AlphaTracker()
     for signal_slab, af_slab in zip(signal_slabs, af_slabs, strict=True):
         try:
             result = correct_autofluorescence(
@@ -200,7 +229,10 @@ def process_slabs(
                 [],
             )
             continue
-        summary, coloc = summarize(signal_slab, af_slab.projection, result, scale)
+        tracker.update(result)
+        summary, coloc = summarize(
+            signal_slab, af_slab.projection, result, scale, tracker.alpha_for(result)
+        )
         objects = object_rows(signal_slab, coloc, result, scale) if with_objects else []
         yield SlabOutcome(summary, result, objects)
 
@@ -258,11 +290,36 @@ class SlabStackWriter:
 
 
 def write_summary_csv(path: Path, summaries: list[SlabSummary]) -> None:
-    rows = [s.as_row() for s in summaries]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+    writer = SummaryCsvWriter(path)
+    try:
+        for summary in summaries:
+            writer.write(summary)
+    finally:
+        writer.close()
+
+
+class SummaryCsvWriter:
+    """Streams slab summaries to csv as they are produced.
+
+    Written per slab rather than at the end so that a run killed part way through (out of
+    memory, say) leaves the slabs it did finish, and so that an empty file cannot be mistaken
+    for a completed run.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._file = open(path, "w", newline="")
+        self._writer: csv.DictWriter[str] | None = None
+
+    def write(self, summary: SlabSummary) -> None:
+        row = summary.as_row()
+        if self._writer is None:
+            self._writer = csv.DictWriter(self._file, fieldnames=list(row))
+            self._writer.writeheader()
+        self._writer.writerow(row)
+        self._file.flush()
+
+    def close(self) -> None:
+        self._file.close()
 
 
 def read_summary_csv(path: Path) -> list[SlabSummary]:
@@ -303,6 +360,7 @@ class ObjectCsvWriter:
 
     def write(self, rows: list[dict[str, float]]) -> None:
         self._writer.writerows(rows)
+        self._file.flush()  # a killed run keeps the slabs it finished
 
     def close(self) -> None:
         self._file.close()

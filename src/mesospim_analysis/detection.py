@@ -61,11 +61,23 @@ def contrast_ratio(
     return ratio
 
 
-AF_RATIO_CUTOFF = 2.0
-"""Signal/AF peak ratio separating autofluorescence from label. Autofluorescent granules sit
-near 0.7 (IQR ~0.5-0.9); AF647 bleeding into the 561 nm channel at ~7% puts labelled cells
-near 14. Results were identical for cutoffs from 1.5 to 3 on real data. Assumes unchanged
-laser powers and exposures: if these change, the autofluorescence ratio moves with them."""
+AF_RATIO_MULTIPLE = 3.0
+"""Objects are autofluorescent below this multiple of the brain's own autofluorescence ratio.
+
+The ratio where autofluorescence sits is `alpha`, fitted per slab, and it varies 4-fold across
+brains (0.49-2.14 measured) with tissue and clearing, not only with laser power. A fixed cutoff
+therefore fails: in a brain with alpha 1.6, a cutoff of 2 counted 44,101 autofluorescent objects
+as labelled cells in a secondary-only control. Scaling to alpha self-calibrates.
+
+k=3 chosen against a no-antibody control, whose true count is zero: it removes 77% of that
+brain's false objects and 94% of a secondary-only control's, for 1.3% of the cells in strongly
+labelled brains. Higher k costs weakly labelled brains disproportionately."""
+
+DEFAULT_ALPHA = 0.7
+"""Used when a slab has too little autofluorescence to fit alpha and no better estimate exists."""
+
+MIN_ALPHA_FIT_PIXELS = 2000
+"""Below this, a slab's fitted alpha is noise; use the brain's running median instead."""
 
 
 @dataclass(frozen=True)
@@ -144,7 +156,7 @@ def classify_by_autofluorescence(
     af: FloatImage,
     tissue: BoolImage,
     detection_contrast: float = 2.0,
-    af_ratio_cutoff: float = AF_RATIO_CUTOFF,
+    af_ratio_cutoff: float = AF_RATIO_MULTIPLE * DEFAULT_ALPHA,
     pixel_size_um: float = REFERENCE_PIXEL_SIZE_UM,
 ) -> Colocalisation:
     """Detect objects in the signal channel and flag those whose signal/AF ratio is autofluorescent.
