@@ -20,6 +20,9 @@ DRIVE = Path("/Volumes/JR-cache/Mesospim")
 RUN = DRIVE / "brainreg_bakeoff" / "princeton_mouse_20um"
 
 RAW = DRIVE / "brainreg" / "downsampled_488 nm_pyramid_3.tif"
+# Value 1 = CP, 2 = HPF, 3 = CB. HPF is the hippocampal formation, which includes the
+# subiculum and entorhinal cortex; HIP alone stops at CA1/CA3/DG and looks, correctly but
+# confusingly, like it is missing half the structure you can see in the data.
 LABELS = RUN / "atlas_check_3regions.tif"  # or atlas_in_original_space.tif for all regions
 PYRAMID_LEVEL = 3
 CONTRAST: tuple[float, float] | None = (0.0, 1300.0)  # None = let napari choose

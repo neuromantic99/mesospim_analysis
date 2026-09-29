@@ -38,7 +38,9 @@ def afcorr_description(alpha: float) -> str:
 def print_counts(before: dict[float, int], after: dict[float, int]) -> None:
     for t in COUNT_THRESHOLDS:
         kept = 100 * after[t] / before[t] if before[t] else 0.0
-        print(f"    >{t:.0f}: bgsub {before[t]} -> afcorr {after[t]} ({kept:.1f}% kept)")
+        print(
+            f"    >{t:.0f}: bgsub {before[t]} -> afcorr {after[t]} ({kept:.1f}% kept)"
+        )
 
 
 def print_summary(summary: SlabSummary) -> None:
@@ -61,11 +63,17 @@ def _open(
     scale = volumes.scale
     planes = planes_per_slab(thickness_um, scale.z_step_um)
     if scale.too_coarse_for_counting:
-        print(f"warning: {scale.pixel_size_um:.2f} um/px is too coarse to separate nuclei from "
-              "noise; use pyramid level 0 for counts", file=sys.stderr)
+        print(
+            f"warning: {scale.pixel_size_um:.2f} um/px is too coarse to separate nuclei from "
+            "noise; use pyramid level 0 for counts",
+            file=sys.stderr,
+        )
     if planes * scale.z_step_um != thickness_um:
-        print(f"note: slab thickness rounded to {planes} planes = "
-              f"{planes * scale.z_step_um:g} um", file=sys.stderr)
+        print(
+            f"note: slab thickness rounded to {planes} planes = "
+            f"{planes * scale.z_step_um:g} um",
+            file=sys.stderr,
+        )
     return volumes, planes
 
 
@@ -104,19 +112,31 @@ def run_brain(
             z_start, z_end = (round(v / z_step) for v in z_range_um)
         stem = _output_stem(acquisition, planes, volumes)
         note = f"{planes * z_step:g} um slab max projections from plane {z_start}"
-        stacks = {"afcorr": SlabStackWriter(
-            out_dir / f"{stem}_afcorr.tif",
-            f"{METHOD}; autofluorescence removed with alpha fitted per slab (see csv); {note}",
-        )}
+        stacks = {
+            "afcorr": SlabStackWriter(
+                out_dir / f"{stem}_afcorr.tif",
+                f"{METHOD}; autofluorescence removed with alpha fitted per slab (see csv); {note}",
+            )
+        }
         if save_bgsub:
-            stacks["bgsub"] = SlabStackWriter(out_dir / f"{stem}_bgsub.tif", f"{METHOD}; {note}")
+            stacks["bgsub"] = SlabStackWriter(
+                out_dir / f"{stem}_bgsub.tif", f"{METHOD}; {note}"
+            )
         plane_shape = volumes.signal.shape[1:]
-        objects = ObjectCsvWriter(out_dir / f"{stem}_objects.csv") if save_objects else None
+        objects = (
+            ObjectCsvWriter(out_dir / f"{stem}_objects.csv") if save_objects else None
+        )
         summary_csv = SummaryCsvWriter(out_dir / f"{stem}_summary.csv")
         try:
             for outcome in process_slabs(
-                volumes.signal, volumes.af, planes, volumes.scale,
-                z_start, z_end, volumes.read_block, with_objects=save_objects,
+                volumes.signal,
+                volumes.af,
+                planes,
+                volumes.scale,
+                z_start,
+                z_end,
+                volumes.read_block,
+                with_objects=save_objects,
             ):
                 print_summary(outcome.summary)
                 summaries.append(outcome.summary)
@@ -127,7 +147,11 @@ def run_brain(
                 )
                 if "bgsub" in stacks:
                     stacks["bgsub"].write(
-                        None if correction is None else correction.background_subtracted,
+                        (
+                            None
+                            if correction is None
+                            else correction.background_subtracted
+                        ),
                         plane_shape,
                     )
                 if objects is not None:
@@ -141,8 +165,10 @@ def run_brain(
 
     n_ok = sum(s.status == "ok" for s in summaries)
     specific = sum(s.puncta_specific for s in summaries)
-    print(f"{acquisition.name}: {n_ok}/{len(summaries)} slabs corrected, "
-          f"{specific} specific puncta in total; outputs in {out_dir}")
+    print(
+        f"{acquisition.name}: {n_ok}/{len(summaries)} slabs corrected, "
+        f"{specific} specific puncta in total; outputs in {out_dir}"
+    )
     return summaries
 
 
@@ -166,8 +192,14 @@ def run_slab(
         volumes, planes = _open(f, h5_path, pyramid_level, signal, af, thickness_um)
         z_start = round(z_start_um / volumes.scale.z_step_um)
         [outcome] = process_slabs(
-            volumes.signal, volumes.af, planes, volumes.scale,
-            z_start, z_start + planes, volumes.read_block, with_objects=save_objects,
+            volumes.signal,
+            volumes.af,
+            planes,
+            volumes.scale,
+            z_start,
+            z_start + planes,
+            volumes.read_block,
+            with_objects=save_objects,
         )
     summary, result = outcome.summary, outcome.correction
     print_summary(summary)
@@ -175,7 +207,11 @@ def run_slab(
         raise ValueError(f"slab could not be corrected: {summary.status}")
     name = f"{_output_stem(acquisition, planes, volumes)}_z{summary.z_start_um:g}"
     save_uint16(out_dir / f"{name}_bgsub.tif", result.background_subtracted, METHOD)
-    save_uint16(out_dir / f"{name}_afcorr.tif", result.corrected, afcorr_description(result.alpha))
+    save_uint16(
+        out_dir / f"{name}_afcorr.tif",
+        result.corrected,
+        afcorr_description(result.alpha),
+    )
     written = f"{name}_bgsub.tif and {name}_afcorr.tif"
     if save_objects:
         objects = ObjectCsvWriter(out_dir / f"{name}_objects.csv")
@@ -203,19 +239,35 @@ def run_tiff(
     signal, af = load_channel_pair(signal_path, af_path)
     result = correct_autofluorescence(signal, af, pixel_size_um)
     save_uint16(out_dir / f"{prefix}_bgsub.tif", result.background_subtracted, METHOD)
-    save_uint16(out_dir / f"{prefix}_afcorr.tif", result.corrected, afcorr_description(result.alpha))
+    save_uint16(
+        out_dir / f"{prefix}_afcorr.tif",
+        result.corrected,
+        afcorr_description(result.alpha),
+    )
 
-    print(f"alpha {result.alpha:.3f} (fit on {result.n_fit_pixels} px), "
-          f"noise sigma signal {result.signal_sigma:.1f}, af {result.af_sigma:.1f}")
-    coloc = classify_by_autofluorescence(signal, af, result.tissue, pixel_size_um=pixel_size_um)
+    print(
+        f"alpha {result.alpha:.3f} (fit on {result.n_fit_pixels} px), "
+        f"noise sigma signal {result.signal_sigma:.1f}, af {result.af_sigma:.1f}"
+    )
+    coloc = classify_by_autofluorescence(
+        signal, af, result.tissue, pixel_size_um=pixel_size_um
+    )
     n, n_af = len(coloc.is_autofluorescent), int(coloc.is_autofluorescent.sum())
-    print(f"puncta >2x local background: {n} = {n_af} autofluorescent + {n - n_af} specific")
+    print(
+        f"puncta >2x local background: {n} = {n_af} autofluorescent + {n - n_af} specific"
+    )
     print("objects inside tissue:")
     print_counts(
-        {t: count_objects(result.background_subtracted, t, result.tissue, pixel_size_um)
-         for t in COUNT_THRESHOLDS},
-        {t: count_objects(result.corrected, t, result.tissue, pixel_size_um)
-         for t in COUNT_THRESHOLDS},
+        {
+            t: count_objects(
+                result.background_subtracted, t, result.tissue, pixel_size_um
+            )
+            for t in COUNT_THRESHOLDS
+        },
+        {
+            t: count_objects(result.corrected, t, result.tissue, pixel_size_um)
+            for t in COUNT_THRESHOLDS
+        },
     )
     print(f"wrote {prefix}_bgsub.tif and {prefix}_afcorr.tif to {out_dir}")
     return result
