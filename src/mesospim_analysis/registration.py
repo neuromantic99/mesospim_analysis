@@ -184,7 +184,9 @@ def resample_in_plane(registered: IntImage, shape: tuple[int, int, int]) -> IntI
     return zoomed
 
 
-def region_subset(labels: IntImage, groups: dict[int, npt.NDArray[np.integer]]) -> IntImage:
+def region_subset(
+    labels: IntImage, groups: dict[int, npt.NDArray[np.integer]]
+) -> IntImage:
     """Collapse a label volume to a handful of regions, numbered 1..n.
 
     For checking a registration by eye: a few large, unmistakable regions read far more clearly
