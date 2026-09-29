@@ -16,10 +16,13 @@ brainreg works in the atlas's orientation at the atlas's resolution, so its outp
 mapped back before they can be used with objects detected in the original volume.
 """
 
+import csv
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
+import tifffile
 from scipy import ndimage as ndi
 from skimage.filters import threshold_otsu
 
@@ -274,3 +277,45 @@ def surface_distance_mm(
 def dice(a: BoolImage, b: BoolImage) -> float:
     total = int(a.sum()) + int(b.sum())
     return 2 * float((a & b).sum()) / total if total else float("nan")
+
+
+def region_ids(structures_csv: Path, acronym: str) -> npt.NDArray[np.integer]:
+    """Every id belonging to a region, including its descendants.
+
+    Atlases differ in how finely they subdivide. Princeton labels CA1 with the single id 382,
+    while the Allen labels its layers and leaves 382 itself almost unused -- so asking for one
+    id returns a full field in one atlas and nearly nothing in the other. Always take the
+    descendants.
+    """
+    with open(structures_csv, newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    parents = [row for row in rows if row["acronym"] == acronym]
+    if not parents:
+        raise KeyError(f"{acronym} is not in {structures_csv.name}")
+    parent_id = parents[0]["id"]
+    ids = {int(parent_id)} | {
+        int(row["id"]) for row in rows if f"/{parent_id}/" in row["structure_id_path"]
+    }
+    return np.array(sorted(ids))
+
+
+def write_region_subset(
+    full_labels: Path, groups: dict[int, npt.NDArray[np.integer]], out: Path
+) -> dict[int, int]:
+    """Stream a few regions out of a full label volume, numbered 1..n.
+
+    Plane by plane, because the full volume is 1.5 GB of uint32 and the point is to end up
+    with something small enough to page through in a viewer.
+    """
+    source = tifffile.memmap(full_labels)
+    counts = dict.fromkeys(groups, 0)
+    with tifffile.TiffWriter(out, bigtiff=True) as writer:
+        for index in range(source.shape[0]):
+            plane = np.asarray(source[index])
+            selected = np.zeros(plane.shape, dtype=np.uint8)
+            for value, ids in groups.items():
+                hit = np.isin(plane, ids)
+                selected[hit] = value
+                counts[value] += int(hit.sum())
+            writer.write(selected, contiguous=True)
+    return counts

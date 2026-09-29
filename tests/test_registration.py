@@ -1,11 +1,16 @@
 """The registration helpers, on synthetic volumes with a known answer."""
 
+from pathlib import Path
+
 import numpy as np
+import tifffile
 import numpy.typing as npt
 import pytest
 
 from mesospim_analysis.registration import (
     CLIP_PERCENTILE,
+    region_ids,
+    write_region_subset,
     PreparedVolume,
     RegionScore,
     SourceGeometry,
@@ -174,3 +179,49 @@ def test_dice_handles_empty_masks() -> None:
     assert np.isnan(dice(empty, empty))
     full = np.ones((4, 4, 4), dtype=bool)
     assert dice(full, full) == pytest.approx(1.0)
+
+
+def _structures_csv(path: Path) -> Path:
+    """A miniature atlas table: CA1 subdivided into layers, CP not subdivided."""
+    path.write_text(
+        "id,name,acronym,structure_id_path\n"
+        "382,Field CA1,CA1,/997/1080/382/\n"
+        "391,CA1 stratum oriens,CA1so,/997/1080/382/391/\n"
+        "399,CA1 pyramidal layer,CA1sp,/997/1080/382/399/\n"
+        "672,Caudoputamen,CP,/997/477/672/\n"
+    )
+    return path
+
+
+def test_region_ids_include_descendants(tmp_path: Path) -> None:
+    """The Allen labels CA1's layers and barely uses the parent id; princeton uses only the
+    parent. Taking descendants is what makes the two comparable."""
+    csv_path = _structures_csv(tmp_path / "structures.csv")
+    assert region_ids(csv_path, "CA1").tolist() == [382, 391, 399]
+    assert region_ids(csv_path, "CP").tolist() == [672]
+
+
+def test_an_unknown_acronym_is_named_in_the_error(tmp_path: Path) -> None:
+    csv_path = _structures_csv(tmp_path / "structures.csv")
+    with pytest.raises(KeyError, match="NOTAREGION"):
+        region_ids(csv_path, "NOTAREGION")
+
+
+def test_write_region_subset_streams_only_the_requested_regions(tmp_path: Path) -> None:
+    labels = np.zeros((6, 4, 4), dtype=np.uint32)
+    labels[0] = 391      # a CA1 layer
+    labels[1] = 672      # CP
+    labels[2] = 999      # something not asked for
+    source = tmp_path / "full.tif"
+    tifffile.imwrite(source, labels)
+
+    out = tmp_path / "subset.tif"
+    counts = write_region_subset(
+        source, {1: np.array([382, 391, 399]), 2: np.array([672])}, out
+    )
+    written = tifffile.imread(out)
+    assert written.dtype == np.uint8
+    assert written.shape == labels.shape
+    assert set(np.unique(written).tolist()) == {0, 1, 2}
+    assert (written[0] == 1).all() and (written[1] == 2).all() and (written[2] == 0).all()
+    assert counts == {1: 16, 2: 16}

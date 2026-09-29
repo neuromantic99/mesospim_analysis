@@ -9,6 +9,7 @@ napari is not a dependency of this package. It is imported inside the function s
 everything else keeps working without it.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,3 +85,26 @@ def open_registration(view: RegistrationView) -> Any:
     viewer.scale_bar.visible = True
     viewer.scale_bar.unit = "um"
     return viewer
+
+
+def region_file(
+    run: Path, regions: Sequence[str], full_labels: str = "atlas_in_original_space.tif"
+) -> tuple[Path, dict[str, int]]:
+    """A small label volume holding just `regions`, built once and cached beside the run.
+
+    Streaming a few regions out of the 1.5 GB full projection takes minutes on an external
+    disk, so the result is kept: asking for the same regions again is instant.
+    """
+    from mesospim_analysis.registration import region_ids, write_region_subset
+
+    if not regions:
+        raise ValueError("name at least one region")
+    structures = run / "structures.csv"
+    values = {name: index for index, name in enumerate(regions, start=1)}
+    out = run / f"atlas_subset_{'_'.join(regions)}.tif"
+    if not out.exists():
+        groups = {
+            value: region_ids(structures, name) for name, value in values.items()
+        }
+        write_region_subset(run / full_labels, groups, out)
+    return out, values
