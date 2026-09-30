@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from mesospim_analysis.constants import AFCORR_DIRNAME
 from mesospim_analysis.acquisitions import find_acquisitions, parse_acquisition, resolve_h5
 
 
@@ -47,7 +48,7 @@ def test_copy_results_never_overwrites_a_result_with_an_empty_file(
     from mesospim_analysis import acquisitions
 
     root = tmp_path / "data"
-    afcorr = root / "2026-05-18" / "N027" / "001" / "afcorr"
+    afcorr = root / "2026-05-18" / "N027" / "001" / AFCORR_DIRNAME
     afcorr.mkdir(parents=True)
     (afcorr / "in_progress_objects.csv").write_text("")          # run started, nothing flushed
     (afcorr / "partial_objects.csv").write_text("a,b\n1,2\n")    # shorter than what we have

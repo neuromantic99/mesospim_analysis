@@ -79,6 +79,26 @@ DEFAULT_ALPHA = 0.7
 MIN_ALPHA_FIT_PIXELS = 2000
 """Below this, a slab's fitted alpha is noise; use the brain's running median instead."""
 
+DETECTION_CONTRAST = 1.5
+"""An object must exceed this multiple of its local background to be detected.
+
+Was 2.0, which cost most of the cortex. The ratio depends on how bright the surroundings are,
+not on how many cells there are, so a fixed cutoff is harsher where the background is bright.
+In N027 at one depth the isocortex yielded 5 cell-sized objects at 2.0 and 343 at 1.3, a 69x
+rise, while the ventricles went from 179 to 562, only 3.1x: cortical cells sit just under the
+old cutoff, debris in the dark ventricle lumen clears it easily. Perirhinal, ectorhinal and
+entorhinal cortex contained no objects at all.
+
+1.5 rather than lower because the floor is what limits it, measured against brains given no
+primary. In the clean rounds the floor stays near zero all the way down -- N029 and N030 yield
+0.0-0.1 objects per mm2 at 1.5 against 8.4-15.1 in a real brain -- but it is the interior that
+breaks first: nonspecific signal there goes from 20% of the count at 2.0 to 28% at 1.5, 52% at
+1.4 and 74% at 1.3.
+
+Thickening or thinning the projection does not help. Contrast falls as the slab thins (1.48 to
+1.39 in the outer shell from 50 um to 5 um), because a thick projection catches each cell at
+its brightest plane while the background rises only ~10%."""
+
 
 @dataclass(frozen=True)
 class SpatialContext:
@@ -155,7 +175,7 @@ def classify_by_autofluorescence(
     signal: FloatImage,
     af: FloatImage,
     tissue: BoolImage,
-    detection_contrast: float = 2.0,
+    detection_contrast: float = DETECTION_CONTRAST,
     af_ratio_cutoff: float = AF_RATIO_MULTIPLE * DEFAULT_ALPHA,
     pixel_size_um: float = REFERENCE_PIXEL_SIZE_UM,
 ) -> Colocalisation:

@@ -9,7 +9,7 @@ from mesospim_analysis.acquisitions import (
     parse_acquisition,
     resolve_h5,
 )
-from mesospim_analysis.constants import DATA_ROOT
+from mesospim_analysis.constants import AFCORR_DIRNAME, DATA_ROOT
 from mesospim_analysis.pipeline import SlabSummary
 from mesospim_analysis.plotting import plot_depth_profiles
 from mesospim_analysis.run import run_brain
@@ -30,7 +30,7 @@ comparable with the rest of the cohort."""
 Z_RANGE_UM: tuple[float, float] | None = None  # e.g. (3000.0, 4000.0); None = whole brain
 SAVE_BGSUB = False  # also write the background-subtracted (not AF-corrected) stack
 SAVE_OBJECTS = True  # one csv row per detected object (roughly doubles runtime)
-OUT_DIR: Path | None = None  # None = afcorr/ next to each stitched.h5
+OUT_DIR: Path | None = None  # None = AFCORR_DIRNAME next to each stitched.h5
 PLOT_PATH: Path | None = Path("depth_profiles.png")  # summary figure; None = skip
 
 # ---------------------------------------------------------------------------------------------
@@ -55,10 +55,10 @@ def main(acquisitions: List[Path]) -> None:
 
 
 if __name__ == "__main__":
-    acquisitions = [
-        DATA_ROOT / "2026-05-18/N027/001",  # real, stain worked (1185/MP on 561)
-        DATA_ROOT / "2026-05-18/N030/001",  # no-antibody control (5/MP on 561)
-    ]
-
-    # acquisitions = build_aquisition_list()
+    # the whole cohort. For a shorter check first, use the two brains the threshold was
+    # validated on:
+    #   acquisitions = [DATA_ROOT / "2026-05-18/N027/001",   # real, 1185/MP at contrast 2.0
+    #                   DATA_ROOT / "2026-05-18/N030/001"]   # no antibody, 7/MP
+    acquisitions = build_aquisition_list()
+    print(f"{len(acquisitions)} acquisitions -> {AFCORR_DIRNAME}/ in each")
     main(acquisitions)

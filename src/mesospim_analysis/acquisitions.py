@@ -8,7 +8,7 @@ import re
 
 import numpy as np
 
-from mesospim_analysis.constants import DATA_ROOT, RESULTS_DIR
+from mesospim_analysis.constants import AFCORR_DIRNAME, DATA_ROOT, RESULTS_DIR
 from mesospim_analysis.utils import read_stitched_metadata
 
 STITCHED_FILENAME = "stitched.h5"
@@ -97,9 +97,9 @@ def copy_results() -> None:
         for mouse in mice:
             imaging_numbers = mouse.glob("*/")
             for imaging_number in imaging_numbers:
-                if not (imaging_number / "afcorr").exists():
+                if not (imaging_number / AFCORR_DIRNAME).exists():
                     continue
-                csvs = imaging_number.glob("afcorr/*.csv")
+                csvs = imaging_number.glob(f"{AFCORR_DIRNAME}/*.csv")
                 all_csvs.extend(list(csvs))
 
     destination = RESULTS_DIR

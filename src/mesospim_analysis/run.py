@@ -9,6 +9,7 @@ from pathlib import Path
 import h5py
 
 from mesospim_analysis.acquisitions import Acquisition, parse_acquisition, resolve_h5
+from mesospim_analysis.constants import AFCORR_DIRNAME
 from mesospim_analysis.correction import (
     REFERENCE_PIXEL_SIZE_UM,
     AutofluorescenceCorrection,
@@ -100,7 +101,7 @@ def run_brain(
     """
     h5_path = resolve_h5(path)
     acquisition = parse_acquisition(h5_path)
-    out_dir = out_dir or h5_path.parent / "afcorr"
+    out_dir = out_dir or h5_path.parent / AFCORR_DIRNAME
     out_dir.mkdir(parents=True, exist_ok=True)
 
     summaries: list[SlabSummary] = []
@@ -185,7 +186,7 @@ def run_slab(
     """Correct the slab starting at `z_start_um`, writing its _bgsub/_afcorr TIFFs and objects."""
     h5_path = resolve_h5(path)
     acquisition = parse_acquisition(h5_path)
-    out_dir = out_dir or h5_path.parent / "afcorr"
+    out_dir = out_dir or h5_path.parent / AFCORR_DIRNAME
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with h5py.File(h5_path, "r") as f:

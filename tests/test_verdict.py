@@ -7,9 +7,11 @@ from mesospim_analysis.detection import DEFAULT_ALPHA
 from mesospim_analysis.pipeline import SlabSummary, read_summary_csv
 from mesospim_analysis.run import run_brain
 from mesospim_analysis.verdict import (
+    CALIBRATED_AT_CONTRAST,
     MIN_ALPHA_FIT_SLABS,
     PLAUSIBLE_ALPHA,
     BrainMeasurement,
+    Verdict,
     _slab_alphas,
     judge,
     measure_brain,
@@ -30,6 +32,15 @@ def _measurement(
         "test", int(density * frame_mp), density, 0.7, alpha, frame_mp, retained,
         robustness, n_alpha_slabs,
     )
+
+
+def _other_caveats(verdict: Verdict) -> tuple[str, ...]:
+    """Caveats other than the standing one about the detection contrast.
+
+    That caveat fires on every judgement while the contrast differs from the one the density
+    thresholds were set at, which is the point of it. These tests are about the others.
+    """
+    return tuple(c for c in verdict.caveats if "detection contrast" not in c)
 
 
 def _slab(index: int, alpha: float, n_fit_pixels: int) -> SlabSummary:
@@ -73,7 +84,7 @@ def test_untrained_conditions_are_flagged() -> None:
     assert any("above the trained range" in c for c in judge(_measurement(1300, alpha=2.5), 13).caveats)
     assert any("differs from the training frames" in c for c in
                judge(_measurement(1300, frame_mp=2.0), 13).caveats)
-    assert not judge(_measurement(1300, frame_mp=8.0), 13).caveats  # a hemibrain is fine
+    assert not _other_caveats(judge(_measurement(1300, frame_mp=8.0), 13))  # hemibrain ok
 
 
 def test_at_floor_states_it_cannot_identify_a_control() -> None:
@@ -113,7 +124,7 @@ def test_low_retention_is_flagged_without_changing_the_call() -> None:
     marginal = judge(_measurement(1300, retained=0.17), 13)
     assert (marginal.call, marginal.confidence) == (clean.call, clean.confidence)
     assert any("stricter cutoff" in c for c in marginal.caveats)
-    assert not clean.caveats
+    assert not _other_caveats(clean)
 
 
 def test_a_wild_alpha_from_a_few_slabs_cannot_set_the_cutoff() -> None:
@@ -151,7 +162,7 @@ def test_assumed_alpha_is_flagged_without_changing_the_call() -> None:
     assumed = judge(_measurement(1300, n_alpha_slabs=1), 13)
     assert (assumed.call, assumed.confidence) == (measured.call, measured.confidence)
     assert any("alpha assumed" in c for c in assumed.caveats)
-    assert not measured.caveats
+    assert not _other_caveats(measured)
 
 
 def test_alpha_dependent_counts_are_flagged_without_changing_the_call() -> None:
@@ -159,7 +170,7 @@ def test_alpha_dependent_counts_are_flagged_without_changing_the_call() -> None:
     fragile = judge(_measurement(1300, robustness=0.05), 13)
     assert (fragile.call, fragile.confidence) == (solid.call, solid.confidence)
     assert any("depends on where the cutoff sits" in c for c in fragile.caveats)
-    assert not solid.caveats
+    assert not _other_caveats(solid)
 
 
 def test_robustness_separates_a_real_brain_from_a_control(
@@ -172,3 +183,13 @@ def test_robustness_separates_a_real_brain_from_a_control(
     m = measure_brain(out / f"{stem}_objects.csv", out / f"{stem}_summary.csv")
     assert 0.0 <= m.alpha_robustness <= 1.0
     assert m.alpha_robustness > 0.5  # synthetic cells sit well clear of the autofluorescence
+
+
+def test_a_changed_detection_contrast_is_flagged() -> None:
+    """The density thresholds are absolute counts, so they do not survive a contrast change:
+    lowering it to 1.5 roughly triples what a brain yields."""
+    from mesospim_analysis.detection import DETECTION_CONTRAST
+
+    verdict = judge(_measurement(1300), 13)
+    flagged = any("detection contrast" in c for c in verdict.caveats)
+    assert flagged == (DETECTION_CONTRAST != CALIBRATED_AT_CONTRAST)

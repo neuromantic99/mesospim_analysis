@@ -17,3 +17,10 @@ DEFAULT_RESULTS_DIR = Path("/Volumes/hard_drive/Mesospim/afcorr_results")
 
 DATA_ROOT = Path(os.environ.get("MESOSPIM_DATA_ROOT") or DEFAULT_DATA_ROOT)
 RESULTS_DIR = Path(os.environ.get("MESOSPIM_RESULTS_DIR") or DEFAULT_RESULTS_DIR)
+
+AFCORR_DIRNAME = os.environ.get("MESOSPIM_AFCORR_DIRNAME") or "afcorr_c15"
+"""Subfolder of each acquisition holding its results, and what copy_results gathers.
+
+Named for the detection contrast it was produced at. The first cohort ran at 2.0 into
+`afcorr/`; re-running into the same folder would overwrite it, and the two are not comparable
+because lowering the threshold roughly triples the counts."""

@@ -17,7 +17,12 @@ from pathlib import Path
 
 import numpy as np
 
-from mesospim_analysis.detection import AF_RATIO_MULTIPLE, DEFAULT_ALPHA, MIN_ALPHA_FIT_PIXELS
+from mesospim_analysis.detection import (
+    AF_RATIO_MULTIPLE,
+    DEFAULT_ALPHA,
+    DETECTION_CONTRAST,
+    MIN_ALPHA_FIT_PIXELS,
+)
 from mesospim_analysis.filters import DEFAULT_FILTER, ObjectRow, read_objects_csv
 from mesospim_analysis.pipeline import SlabSummary, read_summary_csv
 
@@ -28,6 +33,15 @@ LIKELY_TIMES_FLOOR = 5.0
 WEAK_TIMES_FLOOR = 2.0
 """Multiples of the staining round's secondary-only floor. In training, brains with a
 same-round control sat at 89x (N027) and 19x (N028); the controls themselves at 1x."""
+
+CALIBRATED_AT_CONTRAST = 2.0
+"""The detection contrast the density thresholds below were set at.
+
+They are absolute counts, so they do not survive a change to the contrast: lowering it to 1.5
+roughly triples the objects a brain yields, and a control that measured 222/MP would measure
+far more. The multiples of a same-round floor are ratios and are less affected, but they have
+not been re-checked either. Judging a run made at a different contrast against these numbers
+would call weak brains strong."""
 
 STRONG_DENSITY_PER_MP = 1000.0
 POSSIBLE_DENSITY_PER_MP = 250.0
@@ -232,6 +246,11 @@ def judge(
         caveats.append(f"alpha {measurement.median_alpha:.2f} is above the trained range (0.49-2.13)")
     if not 0.3 <= measurement.frame_mp / 15.3 <= 1.2:
         caveats.append(f"frame {measurement.frame_mp:.1f} MP differs from the training frames")
+    if DETECTION_CONTRAST != CALIBRATED_AT_CONTRAST:
+        caveats.append(
+            f"detection contrast is {DETECTION_CONTRAST}, but these thresholds were set at "
+            f"{CALIBRATED_AT_CONTRAST}; densities are not comparable and the call may be wrong"
+        )
     return Verdict(measurement, floor_per_mp, floor_source, times, call, confidence, tuple(caveats))
 
 
