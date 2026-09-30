@@ -28,7 +28,7 @@ RAW = DRIVE / "brainreg" / "downsampled_488 nm_pyramid_3.tif"
 #   ["CP", "HPF", "CB"]     three unmistakable ones, for a quick sanity check
 # HPF is the hippocampal formation, including subiculum and entorhinal cortex. HIP alone stops
 # at CA1/CA3/DG and looks, correctly but confusingly, like half the structure is missing.
-REGIONS = ["CA1"]
+REGIONS = ["DG"]
 
 PYRAMID_LEVEL = 3
 CONTRAST: tuple[float, float] | None = (0.0, 1300.0)  # None = let napari choose

@@ -12,7 +12,7 @@ from mesospim_analysis.acquisitions import (
 from mesospim_analysis.constants import DATA_ROOT
 from mesospim_analysis.pipeline import SlabSummary
 from mesospim_analysis.plotting import plot_depth_profiles
-from mesospim_analysis.run import run_brain, run_slab
+from mesospim_analysis.run import run_brain
 
 # ---------------------------------------------------------------------------------------------
 # Settings
@@ -21,19 +21,17 @@ from mesospim_analysis.run import run_brain, run_slab
 THICKNESS_UM = 50.0
 PYRAMID_LEVEL = 0  # count cells at level 0 only
 SIGNAL_CHANNEL = "638 nm"
-AF_CHANNEL = "488 nm"
-Z_RANGE_UM: tuple[float, float] | None = (
-    None  # e.g. (3000.0, 4000.0); None = whole brain
-)
+AF_CHANNEL = "561 nm"
+"""561, not 488. The label is AF647 and 488 sits too far from it to predict its
+autofluorescence: as a reference it left 234 false cells in a brain given no antibody at all,
+where 561 left none, and no cutoff recovered it. Anything processed against 488 is not
+comparable with the rest of the cohort."""
+
+Z_RANGE_UM: tuple[float, float] | None = None  # e.g. (3000.0, 4000.0); None = whole brain
 SAVE_BGSUB = False  # also write the background-subtracted (not AF-corrected) stack
 SAVE_OBJECTS = True  # one csv row per detected object (roughly doubles runtime)
-# OUT_DIR: Path | None = None  # None = afcorr/ next to each stitched.h5
-OUT_DIR = DATA_ROOT / "afcorr_488"
-# PLOT_PATH: Path | None = Path(
-#     "depth_profiles.png"
-
-# )  # summary figure of all brains; None = skip
-PLOT_PATH = Path("depth_profiles_488.png")
+OUT_DIR: Path | None = None  # None = afcorr/ next to each stitched.h5
+PLOT_PATH: Path | None = Path("depth_profiles.png")  # summary figure; None = skip
 
 # ---------------------------------------------------------------------------------------------
 
@@ -41,25 +39,19 @@ PLOT_PATH = Path("depth_profiles_488.png")
 def main(acquisitions: List[Path]) -> None:
     summaries: dict[str, list[SlabSummary]] = {}
     for acquisition in acquisitions:
-        run_slab(
+        summaries[parse_acquisition(resolve_h5(acquisition)).name] = run_brain(
             acquisition,
-            z_start_um=3800.0,
-            af="488 nm",
-            out_dir=DATA_ROOT / "afcorr_488",
+            thickness_um=THICKNESS_UM,
+            pyramid_level=PYRAMID_LEVEL,
+            signal=SIGNAL_CHANNEL,
+            af=AF_CHANNEL,
+            out_dir=OUT_DIR,
+            z_range_um=Z_RANGE_UM,
+            save_bgsub=SAVE_BGSUB,
+            save_objects=SAVE_OBJECTS,
         )
-        # summaries[parse_acquisition(resolve_h5(acquisition)).name] = run_brain(
-        #     acquisition,
-        #     thickness_um=THICKNESS_UM,
-        #     pyramid_level=PYRAMID_LEVEL,
-        #     signal=SIGNAL_CHANNEL,
-        #     af=AF_CHANNEL,
-        #     out_dir=OUT_DIR,
-        #     z_range_um=Z_RANGE_UM,
-        #     save_bgsub=SAVE_BGSUB,
-        #     save_objects=SAVE_OBJECTS,
-        # )
-    # if PLOT_PATH is not None:
-    #     print(f"wrote {plot_depth_profiles(summaries, PLOT_PATH)}")
+    if PLOT_PATH is not None:
+        print(f"wrote {plot_depth_profiles(summaries, PLOT_PATH)}")
 
 
 if __name__ == "__main__":
