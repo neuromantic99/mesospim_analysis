@@ -68,3 +68,31 @@ def test_a_missing_file_is_named(tmp_path: Path) -> None:
     )
     with pytest.raises(FileNotFoundError, match="absent.tif"):
         view.check()
+
+
+def test_z_step_scales_the_depth_axis(tmp_path: Path) -> None:
+    """Loading every nth plane must widen the z spacing to match, or the brain is squashed."""
+    from mesospim_analysis.viewing import level_scale
+
+    z, y, x = level_scale(3)
+    assert (z, y, x) == pytest.approx((5.0, 26.08, 26.08))
+    # what open_registration computes for z_step=4: near isotropic
+    assert z * 4 == pytest.approx(20.0)
+    assert abs(z * 4 - y) / y < 0.25, "z_step 4 should bring z within 25% of the in-plane size"
+
+
+def test_subsampling_keeps_the_volume_aligned(tmp_path: Path) -> None:
+    """Both layers must be subsampled identically or the overlay shifts."""
+    import tifffile
+
+    from mesospim_analysis.viewing import _load
+
+    volume = np.arange(20 * 3 * 3, dtype=np.uint16).reshape(20, 3, 3)
+    path = tmp_path / "v.tif"
+    tifffile.imwrite(path, volume)
+    for step in (1, 2, 4):
+        loaded = _load(path, step, in_memory=True)
+        mapped = _load(path, step, in_memory=False)
+        assert loaded.shape[0] == len(range(0, 20, step))
+        assert np.array_equal(loaded, volume[::step])
+        assert np.array_equal(np.asarray(mapped), volume[::step])

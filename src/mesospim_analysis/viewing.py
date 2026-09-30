@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import tifffile
 
 Z_STEP_UM = 5.0
@@ -41,6 +42,16 @@ class RegistrationView:
     pyramid_level: int = 3
     contrast: tuple[float, float] | None = None
     label_opacity: float = 0.4
+    z_step: int = 4
+    """Load every nth plane. z is sampled at 5 um against 26.08 um in plane, so 4 gives roughly
+    isotropic 20 um: the right trade for looking at a registration, and a quarter the memory."""
+    in_memory: bool = True
+    """Read the volumes rather than memory-mapping them.
+
+    A tiff stores its pages along the first axis, so a coronal view -- which napari gives by
+    slicing axis 1 -- touches every page to build one section. Memory-mapped from an external
+    disk that is unusably slow; in memory it is instant. With z_step 4 the pair is ~280 MB.
+    """
 
     def check(self) -> tuple[int, ...]:
         """Both volumes must exist and share a shape, or the overlay is meaningless."""
@@ -62,22 +73,44 @@ class RegistrationView:
         return raw_shape
 
 
+def _load(path: Path, step: int, in_memory: bool) -> Any:
+    """Every `step`th plane, materialised only if asked for.
+
+    Memory-mapping first, because whether a stack is one contiguous 3D page or one page per
+    plane depends on how it was written, and only the memmap presents the right shape either
+    way. tifffile's `key` argument indexes the series rather than the pages, so passing a slice
+    there quietly returns the whole volume.
+    """
+    volume: Any
+    try:
+        volume = tifffile.memmap(path)
+    except (ValueError, MemoryError):
+        volume = tifffile.imread(path)  # compressed or otherwise not mappable
+    subsampled = volume[::step]
+    return np.array(subsampled) if in_memory else subsampled
+
+
 def open_registration(view: RegistrationView) -> Any:
     """Show the labels over the volume they were projected onto, correctly scaled."""
     import napari  # noqa: PLC0415  -- optional, and slow to import
 
     view.check()
-    scale = level_scale(view.pyramid_level)
+    z, y, x = level_scale(view.pyramid_level)
+    scale = (z * view.z_step, y, x)
+    raw = _load(view.raw, view.z_step, view.in_memory)
+    labels = _load(view.labels, view.z_step, view.in_memory)
+    print(f"loaded {raw.shape} at {scale[0]:.1f} / {scale[1]:.2f} / {scale[2]:.2f} um "
+          f"({(raw.nbytes + labels.nbytes) / 1e6:.0f} MB)")
     viewer = napari.Viewer()
     viewer.add_image(
-        tifffile.memmap(view.raw),
+        raw,
         name=view.raw.stem,
         scale=scale,
         colormap="gray",
         contrast_limits=view.contrast,
     )
     viewer.add_labels(
-        tifffile.memmap(view.labels),
+        labels,
         name=view.labels.stem,
         scale=scale,
         opacity=view.label_opacity,

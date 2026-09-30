@@ -33,6 +33,13 @@ REGIONS = ["CA1"]
 PYRAMID_LEVEL = 3
 CONTRAST: tuple[float, float] | None = (0.0, 1300.0)  # None = let napari choose
 
+# z is sampled at 5 um against 26.08 um in plane, so loading every 4th plane gives roughly
+# isotropic 20 um and a quarter the memory. Set to 1 for every plane, if you have the RAM.
+Z_STEP = 4
+# A tiff stores pages along the first axis, so a coronal view touches every page to build one
+# section. Memory-mapped from an external disk that is unusably slow. False if memory is tight.
+IN_MEMORY = True
+
 # ---------------------------------------------------------------------------------------------
 
 
@@ -44,7 +51,12 @@ def main() -> None:
 
     viewer = open_registration(
         RegistrationView(
-            raw=RAW, labels=labels, pyramid_level=PYRAMID_LEVEL, contrast=CONTRAST
+            raw=RAW,
+            labels=labels,
+            pyramid_level=PYRAMID_LEVEL,
+            contrast=CONTRAST,
+            z_step=Z_STEP,
+            in_memory=IN_MEMORY,
         )
     )
     # The volume is (z=dorsoventral, y=anteroposterior, x=mediolateral), so scrolling axis 1
