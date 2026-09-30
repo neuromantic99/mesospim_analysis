@@ -39,12 +39,32 @@ from mesospim_analysis.projection import iter_slab_projections, planes_per_slab
 
 DATA_ROOT = Path("/Volumes/MarcBusche/James/Mesospim")
 
+# Each of these answers something the N027/N030 pair cannot. Their alphas, and so their ratio
+# cutoffs, span 0.46 to 1.61, and three have 8.0 MP frames against N027's 15.3.
 ACQUISITIONS = [
-    (DATA_ROOT / "2026-05-18/N027/001", "N027 real"),
-    (DATA_ROOT / "2026-05-18/N030/001", "N030 no antibody"),
+    # done already, kept so every run is self-contained
+    (DATA_ROOT / "2026-05-18/N027/001", "N027 real, alpha 0.59, 1185/MP"),
+    (DATA_ROOT / "2026-05-18/N030/001", "N030 no antibody at all, alpha 0.84"),
+    # the realistic floor: secondary only, and already carrying 222/MP of nonspecific antibody.
+    # N030 has no secondary in it at all, so it cannot test what lowering the threshold does to
+    # the nonspecific component that every working brain contains.
+    (DATA_ROOT / "2026-08-27/N041/001", "N041 secondary-only control, 222/MP"),
+    # the most permissive cutoff in the cohort at 3 x 0.46 = 1.37, and from N041's own round and
+    # frame size, so floor and signal are measured under the same conditions.
+    (DATA_ROOT / "2026-08-27/N049/001", "N049 real, alpha 0.46, 463/MP"),
+    # densely labelled: does a lower threshold recover cortical cells, or merge neighbours in
+    # the 50 um projection? Occlusion would show as counts rising more slowly than in N027.
+    (DATA_ROOT / "2026-07-08/N045/001", "N045 real, best brain, 3442/MP"),
+    # a control whose alpha is four times N027's, to check that N030's zero floor is not just
+    # its own harsh calibration.
+    (DATA_ROOT / "2026-05-21/N029/001", "N029 secondary-only control, alpha 1.61"),
 ]
 
-Z_START_UM = 4750.0  # the depth inspected in N027; use the same in every brain
+Z_START_UM = 4750.0
+"""The depth inspected in N027. A fixed z is not the same anatomical level in every brain --
+they sit at different heights in the chamber and the 8 MP frames differ again -- so check the
+printed tissue areas before comparing. A slab with much less tissue than its neighbours is at
+the edge of the brain and its counts mean something different."""
 THICKNESS_UM = 50.0
 PYRAMID_LEVEL = 0
 SIGNAL_CHANNEL = "638 nm"
