@@ -134,3 +134,61 @@ def roll_up(assigned: npt.NDArray[np.int64], paths: dict[int, list[int]]) -> Cou
         for ancestor in paths.get(region_id, [region_id]):
             totals[ancestor] += 1
     return totals
+
+
+@dataclass(frozen=True)
+class RegionRow:
+    region_id: int
+    acronym: str
+    name: str
+    cells: int
+    volume_mm3: float
+
+    @property
+    def cells_per_mm3(self) -> float | None:
+        return self.cells / self.volume_mm3 if self.volume_mm3 > 0 else None
+
+
+def region_table(
+    assigned: npt.NDArray[np.int64], volumes: dict[int, float], structures_csv: Path
+) -> list[RegionRow]:
+    """One row per region, counts and volumes both rolled up the hierarchy.
+
+    A parent's volume has to be the sum of its descendants' for the same reason its count does:
+    voxels are labelled at the finest level the atlas defines, so a parent queried directly
+    holds almost nothing and its density would be meaningless.
+    """
+    paths = ancestors(structures_csv)
+    names = region_names(structures_csv)
+    counts = roll_up(assigned, paths)
+
+    rolled: dict[int, float] = {}
+    for region_id, mm3 in volumes.items():
+        for ancestor in paths.get(region_id, [region_id]):
+            rolled[ancestor] = rolled.get(ancestor, 0.0) + mm3
+
+    rows = [
+        RegionRow(
+            region_id=region_id,
+            acronym=names.get(region_id, ("?", "?"))[0],
+            name=names.get(region_id, ("?", "?"))[1],
+            cells=count,
+            volume_mm3=rolled.get(region_id, 0.0),
+        )
+        for region_id, count in counts.items()
+    ]
+    rows.sort(key=lambda row: -row.cells)
+    return rows
+
+
+def write_region_table(rows: list[RegionRow], out: Path) -> None:
+    with open(out, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["id", "acronym", "name", "cells", "volume_mm3", "cells_per_mm3"])
+        for row in rows:
+            density = row.cells_per_mm3
+            writer.writerow([
+                row.region_id, row.acronym, row.name, row.cells,
+                round(row.volume_mm3, 4),
+                "" if density is None else round(density, 1),
+            ])

@@ -19,14 +19,14 @@ import tifffile
 from mesospim_analysis.acquisitions import resolve_h5
 from mesospim_analysis.correction import correct_autofluorescence
 from mesospim_analysis.detection import classify_by_autofluorescence
-from mesospim_analysis.pipeline import open_volumes, planes_per_slab
-from mesospim_analysis.projection import iter_slab_projections
+from mesospim_analysis.pipeline import open_volumes
+from mesospim_analysis.projection import iter_slab_projections, planes_per_slab
 
 # ---------------------------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------------------------
 
-ACQUISITION = Path("/Volumes/JR-cache/Mesospim/2026-05-18/N027/001")
+ACQUISITION = Path("/Volumes/MarcBusche/James/Mesospim/2026-05-18/N027/001")
 
 # Slab 95 sits in the band at z 4500-4950 that carries ~500 objects each against a median of 43,
 # and is what pulls every object distribution towards the midline. Slab 76 is a median slab for

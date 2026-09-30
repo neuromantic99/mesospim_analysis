@@ -46,7 +46,9 @@ class Scale:
     @property
     def too_coarse_for_counting(self) -> bool:
         """Nuclei are ~3 px across at the reference size; much coarser and noise passes as cells."""
-        return self.pixel_size_um > COARSE_PIXEL_WARNING_FACTOR * REFERENCE_PIXEL_SIZE_UM
+        return (
+            self.pixel_size_um > COARSE_PIXEL_WARNING_FACTOR * REFERENCE_PIXEL_SIZE_UM
+        )
 
 
 @dataclass(frozen=True)
@@ -81,9 +83,23 @@ class SlabSummary:
 
 
 OBJECT_FIELDS = (
-    "slab", "z_start_um", "z_end_um", "y_px", "x_px", "y_um", "x_um", "area_px", "area_um2",
-    "signal_peak", "af_peak", "ratio", "signal_contrast", "is_autofluorescent",
-    "distance_to_dark_um", "context_length_um", "context_area_px",
+    "slab",
+    "z_start_um",
+    "z_end_um",
+    "y_px",
+    "x_px",
+    "y_um",
+    "x_um",
+    "area_px",
+    "area_um2",
+    "signal_peak",
+    "af_peak",
+    "ratio",
+    "signal_contrast",
+    "is_autofluorescent",
+    "distance_to_dark_um",
+    "context_length_um",
+    "context_area_px",
 )
 
 
@@ -170,7 +186,9 @@ def summarize(
         puncta_autofluorescent=n_af,
         puncta_specific=len(coloc.is_autofluorescent) - n_af,
         objects_bgsub={
-            t: count_objects(result.background_subtracted, t, result.tissue, scale.pixel_size_um)
+            t: count_objects(
+                result.background_subtracted, t, result.tissue, scale.pixel_size_um
+            )
             for t in COUNT_THRESHOLDS
         },
         objects_afcorr={
@@ -206,7 +224,9 @@ def process_slabs(
     so the AF ratio need not be constant through the brain. Check its stability in the summary.
     """
     if signal.shape != af.shape:
-        raise ValueError(f"channel volumes differ in shape: {signal.shape} vs {af.shape}")
+        raise ValueError(
+            f"channel volumes differ in shape: {signal.shape} vs {af.shape}"
+        )
     signal_slabs = iter_slab_projections(signal, planes, z_start, z_end, read_block)
     af_slabs = iter_slab_projections(af, planes, z_start, z_end, read_block)
     tracker = AlphaTracker()
@@ -246,14 +266,20 @@ class OpenVolumes:
 
 
 def open_volumes(
-    h5_file: h5py.File, h5_path: Path, pyramid_level: int, signal_channel: str, af_channel: str
+    h5_file: h5py.File,
+    h5_path: Path,
+    pyramid_level: int,
+    signal_channel: str,
+    af_channel: str,
 ) -> OpenVolumes:
     metadata = read_stitched_metadata(h5_path)
     signal_setup = metadata.setup_id(signal_channel)
     af_setup = metadata.setup_id(af_channel)
     factors = pyramid_downsampling(h5_file, signal_setup)
     if pyramid_level >= len(factors):
-        raise ValueError(f"pyramid level {pyramid_level} not available (0-{len(factors) - 1})")
+        raise ValueError(
+            f"pyramid level {pyramid_level} not available (0-{len(factors) - 1})"
+        )
     if pyramid_downsampling(h5_file, af_setup)[pyramid_level] != factors[pyramid_level]:
         raise ValueError("signal and af channels have different pyramid downsampling")
     fz, fy, _ = factors[pyramid_level]
@@ -343,8 +369,14 @@ def read_summary_csv(path: Path) -> list[SlabSummary]:
                     puncta_total=int(row["puncta_total"]),
                     puncta_autofluorescent=int(row["puncta_autofluorescent"]),
                     puncta_specific=int(row["puncta_specific"]),
-                    objects_bgsub={t: int(row[f"objects_bgsub_gt{t:.0f}"]) for t in COUNT_THRESHOLDS},
-                    objects_afcorr={t: int(row[f"objects_afcorr_gt{t:.0f}"]) for t in COUNT_THRESHOLDS},
+                    objects_bgsub={
+                        t: int(row[f"objects_bgsub_gt{t:.0f}"])
+                        for t in COUNT_THRESHOLDS
+                    },
+                    objects_afcorr={
+                        t: int(row[f"objects_afcorr_gt{t:.0f}"])
+                        for t in COUNT_THRESHOLDS
+                    },
                 )
             )
     return summaries

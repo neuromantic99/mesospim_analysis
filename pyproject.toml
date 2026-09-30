@@ -29,7 +29,9 @@ dev = [
 
 [tool.mypy]
 strict = true
-files = ["src", "tests", "main.py"]
+# Every script at the root, not just main.py: inspect_slab.py shipped with an import
+# that does not exist because it was outside this list.
+files = ["src", "tests", "*.py"]
 
 [[tool.mypy.overrides]]
 module = ["h5py", "h5py.*", "sklearn.*", "napari", "napari.*"]
