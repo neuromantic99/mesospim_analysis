@@ -12,6 +12,11 @@ Lowering a threshold always finds more of everything, so the question is whether
 objects are cells or noise. A brain given no antibody answers that: whatever it yields at a
 threshold is the floor, and only the excess above it is signal.
 
+Both steps of the pipeline have to run at each threshold, not just detection. A brain with no
+antibody still detects thousands of autofluorescent objects; what removes them is the ratio
+test against the 561 channel. Counting detections alone compares autofluorescence between
+brains and says nothing about label.
+
 No registration needed -- the outer shell of the tissue stands in for cortex, and it is applied
 identically to every brain, so the comparison holds even though the proxy is rough.
 """
@@ -23,8 +28,8 @@ import numpy as np
 from scipy import ndimage as ndi
 
 from mesospim_analysis.acquisitions import resolve_h5
-from mesospim_analysis.correction import local_background, tissue_mask
-from mesospim_analysis.detection import label_objects, object_size_range
+from mesospim_analysis.correction import correct_autofluorescence
+from mesospim_analysis.detection import AF_RATIO_MULTIPLE, classify_by_autofluorescence
 from mesospim_analysis.pipeline import open_volumes
 from mesospim_analysis.projection import iter_slab_projections, planes_per_slab
 
@@ -61,33 +66,49 @@ def sweep(path: Path, label: str) -> None:
         scale = volumes.scale
         planes = planes_per_slab(THICKNESS_UM, scale.z_step_um)
         start = round(Z_START_UM / scale.z_step_um)
-        [slab] = list(
+        [signal_slab] = list(
             iter_slab_projections(
                 volumes.signal, planes, start, start + planes, volumes.read_block
             )
         )
-        raw = np.asarray(slab.projection, dtype=np.float32)
+        [af_slab] = list(
+            iter_slab_projections(
+                volumes.af, planes, start, start + planes, volumes.read_block
+            )
+        )
+        raw = np.asarray(signal_slab.projection, dtype=np.float32)
+        af = np.asarray(af_slab.projection, dtype=np.float32)
 
-    tissue = tissue_mask(raw, scale.pixel_size_um)
+    result = correct_autofluorescence(raw, af, scale.pixel_size_um)
+    tissue = result.tissue
+    cutoff = AF_RATIO_MULTIPLE * result.alpha
+
     depth_um = ndi.distance_transform_edt(tissue) * scale.pixel_size_um
-    outer = tissue & (depth_um <= SHELL_UM)
-    inner = tissue & (depth_um > SHELL_UM)
+    outer_mm2 = float((tissue & (depth_um <= SHELL_UM)).sum()) * scale.pixel_size_um**2 / 1e6
+    inner_mm2 = float((tissue & (depth_um > SHELL_UM)).sum()) * scale.pixel_size_um**2 / 1e6
 
-    ratio = raw / np.maximum(local_background(raw, scale.pixel_size_um), 1.0)
-    low, high = object_size_range(scale.pixel_size_um)
+    print(f"\n{label}   alpha {result.alpha:.2f}, cutoff {cutoff:.2f}, "
+          f"outer {outer_mm2:.1f} mm2, interior {inner_mm2:.1f} mm2", flush=True)
+    print(f"  {'thr':>5s} {'detected':>9s} {'specific':>9s} "
+          f"{'outer/mm2':>10s} {'inner/mm2':>10s}", flush=True)
 
-    outer_mm2 = float(outer.sum()) * scale.pixel_size_um**2 / 1e6
-    inner_mm2 = float(inner.sum()) * scale.pixel_size_um**2 / 1e6
-    print(f"\n{label}   outer shell {outer_mm2:.1f} mm2, interior {inner_mm2:.1f} mm2", flush=True)
-    print(f"  {'thr':>5s} {'outer':>7s} {'inner':>7s} {'outer/mm2':>10s} {'inner/mm2':>10s}",
-          flush=True)
     for threshold in THRESHOLDS:
-        counts = []
-        for mask in (outer, inner):
-            _, keep = label_objects((ratio > threshold) & mask, low, high)
-            counts.append(len(keep))
-        print(f"  {threshold:5.1f} {counts[0]:7d} {counts[1]:7d} "
-              f"{counts[0] / max(outer_mm2, 1e-9):10.1f} {counts[1] / max(inner_mm2, 1e-9):10.1f}",
+        coloc = classify_by_autofluorescence(
+            raw, af, tissue,
+            detection_contrast=threshold,
+            af_ratio_cutoff=cutoff,
+            pixel_size_um=scale.pixel_size_um,
+        )
+        specific = ~coloc.is_autofluorescent
+        if not specific.any():
+            print(f"  {threshold:5.1f} {len(coloc.is_autofluorescent):9d} {0:9d}", flush=True)
+            continue
+        points = coloc.centroids[specific].astype(int)
+        depths = depth_um[points[:, 0], points[:, 1]]
+        outer = int((depths <= SHELL_UM).sum())
+        inner = int((depths > SHELL_UM).sum())
+        print(f"  {threshold:5.1f} {len(coloc.is_autofluorescent):9d} {int(specific.sum()):9d} "
+              f"{outer / max(outer_mm2, 1e-9):10.1f} {inner / max(inner_mm2, 1e-9):10.1f}",
               flush=True)
 
 
